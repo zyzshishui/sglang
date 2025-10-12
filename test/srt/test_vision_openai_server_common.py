@@ -33,6 +33,7 @@ class TestOpenAIMLLMServerBase(CustomTestCase):
     extra_args: list = []
     fixed_args: list = [
         "--trust-remote-code",
+        "--enable-multimodal"
     ]
 
     @classmethod
