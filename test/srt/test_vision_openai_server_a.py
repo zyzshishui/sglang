@@ -137,9 +137,6 @@ class TestMiniCPMo26Server(ImageOpenAITestMixin, AudioOpenAITestMixin):
 class TestGemma3itServer(ImageOpenAITestMixin):
     model = "google/gemma-3-4b-it"
     extra_args = [
-        "--mem-fraction-static",
-        "0.70",
-        "--enable-multimodal",
         "--cuda-graph-max-bs",
         "4",
     ]
