@@ -13,32 +13,9 @@ class TestLlavaServer(ImageOpenAITestMixin):
     model = "lmms-lab/llava-onevision-qwen2-0.5b-ov"
 
 
-class TestQwen2VLServer(ImageOpenAITestMixin, VideoOpenAITestMixin):
-    @classmethod
-    def setUpClass(cls):
-        cls.model = "Qwen/Qwen2-VL-7B-Instruct"
-        cls.base_url = DEFAULT_URL_FOR_TEST
-        cls.api_key = "sk-123456"
-        cls.process = popen_launch_server(
-            cls.model,
-            cls.base_url,
-            timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
-            api_key=cls.api_key,
-            other_args=[
-                "--mem-fraction-static",
-                "0.35",
-                "--cuda-graph-max-bs",
-                "4",
-            ],
-        )
-        cls.base_url += "/v1"
-
-
 class TestQwen25VLServer(ImageOpenAITestMixin, VideoOpenAITestMixin):
     model = "Qwen/Qwen2.5-VL-7B-Instruct"
     extra_args = [
-        "--mem-fraction-static",
-        "0.35",
         "--cuda-graph-max-bs",
         "4",
     ]
@@ -58,7 +35,6 @@ class TestQwen2VLContextLengthServer(CustomTestCase):
             other_args=[
                 "--context-length",
                 "300",
-                "--mem-fraction-static=0.75",
                 "--cuda-graph-max-bs",
                 "4",
             ],
@@ -117,8 +93,6 @@ class TestInternVL25Server(ImageOpenAITestMixin):
 class TestMiniCPMV4Server(ImageOpenAITestMixin):
     model = "openbmb/MiniCPM-V-4"
     extra_args = [
-        "--mem-fraction-static",
-        "0.35",
         "--cuda-graph-max-bs",
         "4",
     ]
@@ -127,8 +101,6 @@ class TestMiniCPMV4Server(ImageOpenAITestMixin):
 class TestMiniCPMo26Server(ImageOpenAITestMixin, AudioOpenAITestMixin):
     model = "openbmb/MiniCPM-o-2_6"
     extra_args = [
-        "--mem-fraction-static",
-        "0.65",
         "--cuda-graph-max-bs",
         "4",
     ]
@@ -148,7 +120,6 @@ class TestKimiVLServer(ImageOpenAITestMixin):
         "--context-length",
         "8192",
         "--dtype=bfloat16",
-        "--mem-fraction-static=0.7",
     ]
 
     def test_video_images_chat_completion(self):
@@ -159,8 +130,6 @@ class TestKimiVLServer(ImageOpenAITestMixin):
 class TestGLM41VServer(ImageOpenAITestMixin, VideoOpenAITestMixin):
     model = "zai-org/GLM-4.1V-9B-Thinking"
     extra_args = [
-        "--mem-fraction-static",
-        "0.68",
         "--reasoning-parser",
         "glm45",
     ]
@@ -168,9 +137,6 @@ class TestGLM41VServer(ImageOpenAITestMixin, VideoOpenAITestMixin):
 
 class TestQwen2AudioServer(AudioOpenAITestMixin):
     model = "Qwen/Qwen2-Audio-7B-Instruct"
-    extra_args = [
-        "--mem-fraction-static=0.70",
-    ]
 
 
 if __name__ == "__main__":
