@@ -160,10 +160,60 @@ class Qwen3Attention(nn.Module):
     ) -> torch.Tensor:
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+
+        # Log after QKV split
+        if forward_batch.forward_mode.is_decode() and forward_batch.batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/04-qwen3-after-qkv-split-mode-{forward_batch.forward_mode}-tp-rank-{self.tp_rank}-batch-size-{forward_batch.batch_size}.txt"
+            q_sample = q[0, :5].detach().cpu().tolist()
+            k_sample = k[0, :5].detach().cpu().tolist()
+            v_sample = v[0, :5].detach().cpu().tolist()
+            with open(log_file, "a") as f:
+                f.write(f"Layer: {self.layer_id}\n")
+                f.write(f"  Q[0,:5]: {q_sample}\n")
+                f.write(f"  K[0,:5]: {k_sample}\n")
+                f.write(f"  V[0,:5]: {v_sample}\n")
         q, k = self._apply_qk_norm(q, k)
+
+        # Log after QKV split
+        if forward_batch.forward_mode.is_decode() and forward_batch.batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/05-qwen3-after-qkv-split-mode-{forward_batch.forward_mode}-tp-rank-{self.tp_rank}-batch-size-{forward_batch.batch_size}.txt"
+            q_sample = q[0, :5].detach().cpu().tolist()
+            k_sample = k[0, :5].detach().cpu().tolist()
+            v_sample = v[0, :5].detach().cpu().tolist()
+            with open(log_file, "a") as f:
+                f.write(f"Layer: {self.layer_id}\n")
+                f.write(f"  Q[0,:5]: {q_sample}\n")
+                f.write(f"  K[0,:5]: {k_sample}\n")
+                f.write(f"  V[0,:5]: {v_sample}\n")
         q, k = self.rotary_emb(positions, q, k)
+
+        # Log after rotary embedding
+        if forward_batch.forward_mode.is_decode() and forward_batch.batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/06-qwen3-after-rotary-embedding-mode-{forward_batch.forward_mode}-tp-rank-{self.tp_rank}-batch-size-{forward_batch.batch_size}.txt"
+            q_sample = q[0, :5].detach().cpu().tolist()
+            k_sample = k[0, :5].detach().cpu().tolist()
+            with open(log_file, "a") as f:
+                f.write(f"Layer: {self.layer_id}\n")
+                f.write(f"  Q[0,:5]: {q_sample}\n")
+                f.write(f"  K[0,:5]: {k_sample}\n")
         attn_output = self.attn(q, k, v, forward_batch)
+
+        # Log after attention output
+        if forward_batch.forward_mode.is_decode() and forward_batch.batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/07-qwen3-after-attention-output-mode-{forward_batch.forward_mode}-tp-rank-{self.tp_rank}-batch-size-{forward_batch.batch_size}.txt"
+            attn_output_sample = attn_output[0, :5].detach().cpu().tolist()
+            with open(log_file, "a") as f:
+                f.write(f"Layer: {self.layer_id}\n")
+                f.write(f"  AttnOutput[0,:5]: {attn_output_sample}\n")
         output, _ = self.o_proj(attn_output)
+
+        # Log after output projection
+        if forward_batch.forward_mode.is_decode() and forward_batch.batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/08-qwen3-after-output-projection-mode-{forward_batch.forward_mode}-tp-rank-{self.tp_rank}-batch-size-{forward_batch.batch_size}.txt"
+            output_sample = output[0, :5].detach().cpu().tolist()
+            with open(log_file, "a") as f:
+                f.write(f"Layer: {self.layer_id}\n")
+                f.write(f"  Output[0,:5]: {output_sample}\n")
         return output
 
 
@@ -229,6 +279,21 @@ class Qwen3DecoderLayer(nn.Module):
         residual: Optional[torch.Tensor],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Self Attention
+        batch_size = forward_batch.batch_size
+
+        # Log input to layer (BEFORE layernorm)
+        if batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/02-qwen3-layer-input-mode-{forward_batch.forward_mode}-tp-{self.tp_size}-batch-size-{batch_size}.txt"
+            first_hidden = hidden_states[0, :5].detach().cpu().tolist()
+            first_residual = (
+                residual[0, :5].detach().cpu().tolist()
+                if residual is not None
+                else "None"
+            )
+            with open(log_file, "a+") as f:
+                f.write(
+                    f"Batch Size: {batch_size}, Layer: {self.layer_id}, Hidden: {first_hidden}, Residual: {first_residual}\n"
+                )
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch
         )
@@ -239,6 +304,19 @@ class Qwen3DecoderLayer(nn.Module):
                 forward_batch=forward_batch,
             )
 
+        # Log after self attention
+        if batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/03-qwen3-layer-input-mode-{forward_batch.forward_mode}-tp-{self.tp_size}-batch-size-{batch_size}.txt"
+            first_hidden = hidden_states[0, :5].detach().cpu().tolist()
+            first_residual = (
+                residual[0, :5].detach().cpu().tolist()
+                if residual is not None
+                else "None"
+            )
+            with open(log_file, "a+") as f:
+                f.write(
+                    f"Batch Size: {batch_size}, Layer: {self.layer_id}, Hidden: {first_hidden}, Residual: {first_residual}\n"
+                )
         # Fully Connected
         hidden_states, residual = self.layer_communicator.prepare_mlp(
             hidden_states,
@@ -251,6 +329,20 @@ class Qwen3DecoderLayer(nn.Module):
             ),
         )
         hidden_states = self.mlp(hidden_states)
+
+        # Log after MLP
+        if batch_size > 0:
+            log_file = f"/data/sglang-deterministic-logging/04-qwen3-layer-input-mode-{forward_batch.forward_mode}-tp-{self.tp_size}-batch-size-{batch_size}.txt"
+            first_hidden = hidden_states[0, :5].detach().cpu().tolist()
+            first_residual = (
+                residual[0, :5].detach().cpu().tolist()
+                if residual is not None
+                else "None"
+            )
+            with open(log_file, "a+") as f:
+                f.write(
+                    f"Batch Size: {batch_size}, Layer: {self.layer_id}, Hidden: {first_hidden}, Residual: {first_residual}\n"
+                )
         if _is_npu and get_cmo_stream():
             wait_cmo_stream()
         hidden_states, residual = self.layer_communicator.postprocess_layer(
