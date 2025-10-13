@@ -3,7 +3,7 @@ import subprocess
 import unittest
 import warnings
 
-from sglang.bench_one_batch_server import BenchmarkResult, generate_markdown_report
+from sglang.bench_one_batch_server import BenchmarkResult
 from sglang.srt.utils import kill_process_tree
 from sglang.test.test_utils import (
     DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
@@ -24,10 +24,10 @@ MODEL_DEFAULTS = [
         "Qwen/Qwen2.5-VL-7B-Instruct",
         extra_args=["--mem-fraction-static=0.7"],
     ),
-    # ModelLaunchSettings(
-    #     "google/gemma-3-27b-it",
-    # ),
-    # ModelLaunchSettings("Qwen/Qwen3-VL-30B-A3B-Instruct", extra_args=["--tp=2"]),
+    ModelLaunchSettings(
+        "google/gemma-3-27b-it",
+    ),
+    ModelLaunchSettings("Qwen/Qwen3-VL-30B-A3B-Instruct", extra_args=["--tp=2"]),
     # "OpenGVLab/InternVL2_5-2B",
     # buggy in official transformers impl
     # "openbmb/MiniCPM-V-2_6",
@@ -52,7 +52,7 @@ class TestNightlyVLMModelsPerformance(unittest.TestCase):
 
         cls.base_url = DEFAULT_URL_FOR_TEST
 
-        cls.batch_sizes = _parse_int_list_env("NIGHTLY_VLM_BATCH_SIZES", "1,1")
+        cls.batch_sizes = _parse_int_list_env("NIGHTLY_VLM_BATCH_SIZES", "1,1,2,8,16")
         cls.input_lens = tuple(_parse_int_list_env("NIGHTLY_VLM_INPUT_LENS", "4096"))
         cls.output_lens = tuple(_parse_int_list_env("NIGHTLY_VLM_OUTPUT_LENS", "512"))
         cls.full_report = f"## {cls.__name__}\n" + BenchmarkResult.help_str()

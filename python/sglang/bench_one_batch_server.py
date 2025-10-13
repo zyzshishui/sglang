@@ -140,7 +140,7 @@ def generate_markdown_report(trace_dir, results: List["BenchmarkResult"]) -> str
         base_url = os.getenv("TRACE_BASE_URL", "").rstrip("/")
         relay_base = os.getenv(
             "PERFETTO_RELAY_URL",
-            "https://docs.sglang.ai/ci-data/pages/perfetto_relay.html",
+            "",
         ).rstrip("/")
         summary += result.to_markdown_row(trace_dir, base_url, relay_base)
 
