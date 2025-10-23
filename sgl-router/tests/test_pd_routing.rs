@@ -2,11 +2,8 @@
 mod test_pd_routing {
     use serde_json::json;
     use sglang_router_rs::{
-        config::{
-            CircuitBreakerConfig, ConnectionMode, PolicyConfig, RetryConfig, RouterConfig,
-            RoutingMode,
-        },
-        core::{BasicWorkerBuilder, Worker, WorkerType},
+        config::{CircuitBreakerConfig, PolicyConfig, RetryConfig, RouterConfig, RoutingMode},
+        core::{BasicWorkerBuilder, ConnectionMode, Worker, WorkerType},
         routers::{http::pd_types::PDSelectionPolicy, RouterFactory},
     };
 
@@ -200,6 +197,7 @@ mod test_pd_routing {
                 oracle: None,
                 reasoning_parser: None,
                 tool_call_parser: None,
+                tokenizer_cache: sglang_router_rs::config::TokenizerCacheConfig::default(),
             };
 
             let app_context = {
@@ -237,8 +235,9 @@ mod test_pd_routing {
                     config.worker_startup_check_interval_secs,
                 )));
 
-                // Create empty OnceLock for worker job queue
+                // Create empty OnceLock for worker job queue and workflow engine
                 let worker_job_queue = Arc::new(OnceLock::new());
+                let workflow_engine = Arc::new(OnceLock::new());
 
                 Arc::new(sglang_router_rs::server::AppContext::new(
                     config,
@@ -254,6 +253,7 @@ mod test_pd_routing {
                     conversation_item_storage,
                     load_monitor,
                     worker_job_queue,
+                    workflow_engine,
                 ))
             };
             let result = RouterFactory::create_router(&app_context).await;

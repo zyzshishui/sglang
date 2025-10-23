@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use clap::{ArgAction, Parser, ValueEnum};
 use sglang_router_rs::{
     config::{
-        CircuitBreakerConfig, ConfigError, ConfigResult, ConnectionMode, DiscoveryConfig,
-        HealthCheckConfig, HistoryBackend, MetricsConfig, OracleConfig, PolicyConfig, RetryConfig,
-        RouterConfig, RoutingMode,
+        CircuitBreakerConfig, ConfigError, ConfigResult, DiscoveryConfig, HealthCheckConfig,
+        HistoryBackend, MetricsConfig, OracleConfig, PolicyConfig, RetryConfig, RouterConfig,
+        RoutingMode, TokenizerCacheConfig,
     },
+    core::ConnectionMode,
     metrics::PrometheusConfig,
     server::{self, ServerConfig},
     service_discovery::ServiceDiscoveryConfig,
@@ -270,6 +271,18 @@ struct CliArgs {
     #[arg(long)]
     chat_template: Option<String>,
 
+    #[arg(long, default_value_t = false)]
+    tokenizer_cache_enable_l0: bool,
+
+    #[arg(long, default_value_t = 10000)]
+    tokenizer_cache_l0_max_entries: usize,
+
+    #[arg(long, default_value_t = false)]
+    tokenizer_cache_enable_l1: bool,
+
+    #[arg(long, default_value_t = 52428800)]
+    tokenizer_cache_l1_max_memory: usize,
+
     #[arg(long, default_value = "memory", value_parser = ["memory", "none", "oracle"])]
     history_backend: String,
 
@@ -313,7 +326,7 @@ impl CliArgs {
     fn determine_connection_mode(worker_urls: &[String]) -> ConnectionMode {
         for url in worker_urls {
             if url.starts_with("grpc://") || url.starts_with("grpcs://") {
-                return ConnectionMode::Grpc;
+                return ConnectionMode::Grpc { port: None };
             }
         }
         ConnectionMode::Http
@@ -581,6 +594,12 @@ impl CliArgs {
             oracle,
             reasoning_parser: self.reasoning_parser.clone(),
             tool_call_parser: self.tool_call_parser.clone(),
+            tokenizer_cache: TokenizerCacheConfig {
+                enable_l0: self.tokenizer_cache_enable_l0,
+                l0_max_entries: self.tokenizer_cache_l0_max_entries,
+                enable_l1: self.tokenizer_cache_enable_l1,
+                l1_max_memory: self.tokenizer_cache_l1_max_memory,
+            },
         })
     }
 
