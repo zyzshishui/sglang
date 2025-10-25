@@ -140,7 +140,7 @@ def matmul_kernel_persistent(
         tl.store(c_ptrs, c, mask=c_mask)
 
 
-def matmul_persistent(
+def _matmul_persistent_triton(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
     # Check constraints.
@@ -216,6 +216,27 @@ def matmul_persistent(
     )
     return c
 
+def _matmul_persistent_deepgemm(
+    a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+):
+    M, K = a.shape
+    K, N = b.shape
+    dtype = a.dtype
+    c = torch.empty((M, N), device=a.device, dtype=dtype)
+
+    TODO
+
+    if bias is not None:
+        c += bias
+    return c
+
+def matmul_persistent(
+    a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
+):
+    out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
+    out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
+    TODO
+    return out_deepgemm
 
 @triton.jit
 def _log_softmax_kernel(
