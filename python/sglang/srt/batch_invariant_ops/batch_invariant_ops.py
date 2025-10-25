@@ -9,6 +9,11 @@ import torch
 import triton
 import triton.language as tl
 
+from sglang.srt.layers.deep_gemm_wrapper.configurer import ENABLE_JIT_DEEPGEMM
+
+if ENABLE_JIT_DEEPGEMM:
+    import deep_gemm
+
 __all__ = [
     "set_batch_invariant_mode",
     "is_batch_invariant_mode_enabled",
@@ -222,17 +227,22 @@ def _matmul_persistent_deepgemm(
     M, K = a.shape
     K, N = b.shape
     dtype = a.dtype
-    c = torch.empty((M, N), device=a.device, dtype=dtype)
+    out = torch.empty((M, N), device=a.device, dtype=dtype)
 
-    TODO
+    deep_gemm.bf16_gemm_nt(a, b, out)
 
+    # TODO can this be put in DeepGEMM's `c`?
     if bias is not None:
-        c += bias
-    return c
+        out += bias
+
+    return out
 
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
+    if not ENABLE_JIT_DEEPGEMM:
+        return _matmul_persistent_triton(a=a, b=b, bias=bias)
+
     out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
     out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
     TODO
