@@ -234,7 +234,7 @@ def _matmul_persistent_deepgemm(
     dtype = a.dtype
     out = torch.empty((M, N), device=a.device, dtype=dtype)
 
-    deep_gemm.bf16_gemm_nt(a, b.transpose(0, 1), out)
+    deep_gemm.bf16_gemm_nt(a, b.transpose(0, 1).contiguous(), out)
 
     # TODO can this be put in DeepGEMM's `c`?
     if bias is not None:
@@ -254,6 +254,7 @@ def matmul_persistent(
         out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
         diff = calc_diff(out_triton, out_deepgemm)
         assert diff < 0.0001, f"{diff=} {out_triton=} {out_deepgemm=}"
+        print(f"hi {diff=} {(out_triton - out_deepgemm).abs().mean()=}")
         return out_deepgemm
 
     return _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
