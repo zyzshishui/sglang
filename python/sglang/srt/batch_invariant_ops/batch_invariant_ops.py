@@ -246,7 +246,8 @@ def _matmul_persistent_deepgemm(
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
-    if not ENABLE_JIT_DEEPGEMM:
+    # DeepGEMM does not support fp32 gemm
+    if (not ENABLE_JIT_DEEPGEMM) or (a.dtype == torch.float32):
         return _matmul_persistent_triton(a=a, b=b, bias=bias)
 
     if _ENABLE_MM_COMPARISON_TEST:
