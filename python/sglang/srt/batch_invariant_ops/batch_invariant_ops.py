@@ -15,6 +15,9 @@ from sglang.srt.utils.common import calc_diff, get_bool_env_var
 if ENABLE_JIT_DEEPGEMM:
     import deep_gemm
 
+_ENABLE_MM_DEEPGEMM = get_bool_env_var(
+    "SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_DEEPGEMM"
+)
 _ENABLE_MM_COMPARISON_TEST = get_bool_env_var(
     "SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_COMPARISON_TEST"
 )
@@ -248,7 +251,8 @@ def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
     if (
-        ENABLE_JIT_DEEPGEMM
+        _ENABLE_MM_DEEPGEMM
+        and ENABLE_JIT_DEEPGEMM
         and (a.dtype == torch.bfloat16)
         and (b.dtype == torch.bfloat16)
         and a.is_contiguous()
