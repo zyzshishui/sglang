@@ -59,7 +59,6 @@ from sglang.srt.managers.io_struct import (
     GenerateReqInput,
     GetLoadReqInput,
     HealthCheckOutput,
-    InjectFailureReqInput,
     OpenSessionReqOutput,
     SessionParams,
     TokenizedEmbeddingReqInput,
@@ -1097,10 +1096,6 @@ class TokenizerManager(TokenizerCommunicatorMixin):
         async with self.is_pause_cond:
             self.is_pause = False
             self.is_pause_cond.notify_all()
-
-    async def inject_failure(self):
-        self.auto_create_handle_loop()
-        self.send_to_scheduler.send_pyobj(InjectFailureReqInput())
 
     async def update_weights_from_disk(
         self,

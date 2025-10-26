@@ -28,7 +28,6 @@ import time
 from http import HTTPStatus
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Union
 
-from sglang.srt.environ import envs
 from sglang.srt.tracing.trace import process_tracing_init, trace_set_thread_info
 
 # Fix a bug of Python threading
@@ -1077,18 +1076,6 @@ async def continue_generation(request: Request):
         content={"message": "Generation continued successfully.", "status": "ok"},
         status_code=200,
     )
-
-
-@app.post("/inject_failure")
-async def inject_failure(request: Request):
-    if not envs.SGLANG_FAILURE_INJECTION_ENDPOINT.get():
-        return ORJSONResponse(
-            content="Please enable `SGLANG_FAILURE_INJECTION_ENDPOINT` to use this feature.",
-            status_code=500,
-        )
-
-    await _global_state.tokenizer_manager.inject_failure()
-    return ORJSONResponse(content="Failure injection submitted.", status_code=200)
 
 
 ##### OpenAI-compatible API endpoints #####
