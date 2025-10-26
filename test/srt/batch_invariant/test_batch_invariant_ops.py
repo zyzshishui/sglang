@@ -96,7 +96,7 @@ class TestBatchInvariantOps(CustomTestCase):
 
         for name, M, K, N in test_cases:
             with self.subTest(name=name, M=M, K=K, N=N):
-                for dtype in [torch.bfloat16]:
+                for dtype in [torch.float32, torch.bfloat16]:
                     with self.subTest(dtype=dtype):
                         # Run with batch-invariant mode
                         with set_batch_invariant_mode(True):
@@ -115,7 +115,7 @@ class TestBatchInvariantOps(CustomTestCase):
 
         for name, M, K, N in test_cases:
             with self.subTest(name=name, M=M, K=K, N=N):
-                for dtype in [torch.bfloat16]:
+                for dtype in [torch.float32, torch.bfloat16]:
                     with self.subTest(dtype=dtype):
                         # Run with batch-invariant mode
                         with set_batch_invariant_mode(True):
@@ -134,7 +134,7 @@ class TestBatchInvariantOps(CustomTestCase):
 
         for name, M, K, N in test_cases:
             with self.subTest(name=name, M=M, K=K, N=N):
-                for dtype in [torch.bfloat16]:
+                for dtype in [torch.float32, torch.bfloat16]:
                     with self.subTest(dtype=dtype):
                         # Run with batch-invariant mode
                         with set_batch_invariant_mode(True):
@@ -149,7 +149,7 @@ class TestBatchInvariantOps(CustomTestCase):
         This test demonstrates the difference batch-invariant mode makes.
         """
         M, K, N = 32, 128, 1024
-        dtype = torch.bfloat16
+        dtype = torch.float32
 
         # Run without batch-invariant mode
         with set_batch_invariant_mode(False):
