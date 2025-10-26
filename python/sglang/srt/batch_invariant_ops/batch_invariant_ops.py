@@ -235,11 +235,7 @@ def _matmul_persistent_deepgemm(
     dtype = a.dtype
     out = torch.empty((M, N), device=a.device, dtype=dtype)
 
-    # useful for e.g. train backward; may be improved later
-    a = a.contiguous()
-    b_transpose = b.transpose(0, 1).contiguous()
-
-    deep_gemm.bf16_gemm_nt(a, b_transpose, out)
+    deep_gemm.bf16_gemm_nt(a, b.transpose(0, 1), out)
 
     # TODO can this be put in DeepGEMM's `c`?
     if bias is not None:
@@ -255,6 +251,8 @@ def matmul_persistent(
         ENABLE_JIT_DEEPGEMM
         and (a.dtype == torch.bfloat16)
         and (b.dtype == torch.bfloat16)
+        and a.is_contiguous()
+        and b.transpose(0, 1).is_contiguous()
     ):
         if _ENABLE_MM_COMPARISON_TEST:
             out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
