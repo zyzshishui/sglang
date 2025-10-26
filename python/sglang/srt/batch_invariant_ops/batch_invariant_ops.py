@@ -246,6 +246,9 @@ def _matmul_persistent_deepgemm(
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
+    # TODO temp
+    return _matmul_persistent_triton(a=a, b=b, bias=bias)
+
     if not ENABLE_JIT_DEEPGEMM:
         return _matmul_persistent_triton(a=a, b=b, bias=bias)
 
