@@ -246,7 +246,7 @@ def _matmul_persistent_deepgemm(
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
-    if 1:
+    if 0:
         out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
         print(f"{a=} {b=} {bias=} {out_triton=}")
         return out_triton
