@@ -225,6 +225,7 @@ def _matmul_persistent_triton(
     )
     return c
 
+
 def _matmul_persistent_deepgemm(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
@@ -241,6 +242,7 @@ def _matmul_persistent_deepgemm(
 
     return out
 
+
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
@@ -255,6 +257,7 @@ def matmul_persistent(
         return out_deepgemm
 
     return _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
+
 
 @triton.jit
 def _log_softmax_kernel(
