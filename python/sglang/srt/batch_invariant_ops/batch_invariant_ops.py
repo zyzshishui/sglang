@@ -10,9 +10,13 @@ import triton
 import triton.language as tl
 
 from sglang.srt.layers.deep_gemm_wrapper.configurer import ENABLE_JIT_DEEPGEMM
+from sglang.srt.utils.common import calc_diff
 
 if ENABLE_JIT_DEEPGEMM:
     import deep_gemm
+
+# TODO disable
+_ENABLE_COMPARISON_TEST = True
 
 __all__ = [
     "set_batch_invariant_mode",
@@ -243,10 +247,14 @@ def matmul_persistent(
     if not ENABLE_JIT_DEEPGEMM:
         return _matmul_persistent_triton(a=a, b=b, bias=bias)
 
-    out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
-    out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
-    TODO
-    return out_deepgemm
+    if _ENABLE_COMPARISON_TEST:
+        out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
+        out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
+        diff = calc_diff(out_triton, out_deepgemm)
+        assert diff < 0.0001, f"{diff=} {out_triton=} {out_deepgemm=}"
+        return out_deepgemm
+
+    return _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
 
 @triton.jit
 def _log_softmax_kernel(
