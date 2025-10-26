@@ -234,7 +234,7 @@ def _matmul_persistent_deepgemm(
     dtype = a.dtype
     out = torch.empty((M, N), device=a.device, dtype=dtype)
 
-    deep_gemm.bf16_gemm_nt(a, b, out)
+    deep_gemm.bf16_gemm_nt(a, b.transpose(0, 1), out)
 
     # TODO can this be put in DeepGEMM's `c`?
     if bias is not None:
