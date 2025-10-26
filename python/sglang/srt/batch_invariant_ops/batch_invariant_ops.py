@@ -11,12 +11,12 @@ import triton.language as tl
 
 from sglang.srt.layers.deep_gemm_wrapper.configurer import ENABLE_JIT_DEEPGEMM
 from sglang.srt.utils.common import calc_diff
+from sglang.srt.utils.common import get_bool_env_var
 
 if ENABLE_JIT_DEEPGEMM:
     import deep_gemm
 
-# TODO disable
-_ENABLE_COMPARISON_TEST = True
+_ENABLE_MM_COMPARISON_TEST = get_bool_env_var("SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_COMPARISON_TEST")
 
 __all__ = [
     "set_batch_invariant_mode",
@@ -246,21 +246,16 @@ def _matmul_persistent_deepgemm(
 def matmul_persistent(
     a: torch.Tensor, b: torch.Tensor, bias: torch.Tensor | None = None
 ):
-    if 0:
-        out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
-        print(f"{a=} {b=} {bias=} {out_triton=}")
-        return out_triton
-
     if not ENABLE_JIT_DEEPGEMM:
         return _matmul_persistent_triton(a=a, b=b, bias=bias)
 
-    if _ENABLE_COMPARISON_TEST:
+    if _ENABLE_MM_COMPARISON_TEST:
         out_triton = _matmul_persistent_triton(a=a, b=b, bias=bias)
         out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
         diff = calc_diff(out_triton, out_deepgemm)
         assert diff < 0.0001, f"{diff=} {out_triton=} {out_deepgemm=}"
         print(
-            f"hi {diff=} "
+            f"{diff=} "
             f"{(out_triton - out_deepgemm).abs().mean()=} "
             f"{(out_triton - out_deepgemm).abs().sum()=} "
             f"{torch.sum(out_triton != out_deepgemm)=} "
