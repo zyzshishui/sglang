@@ -254,13 +254,14 @@ def matmul_persistent(
         out_deepgemm = _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
         diff = calc_diff(out_triton, out_deepgemm)
         assert diff < 0.0001, f"{diff=} {out_triton=} {out_deepgemm=}"
-        print(
-            f"{diff=} "
-            f"{(out_triton - out_deepgemm).abs().mean()=} "
-            f"{(out_triton - out_deepgemm).abs().sum()=} "
-            f"{torch.sum(out_triton != out_deepgemm)=} "
-        )
-        print(f"{a=} {b=} {bias=} {out_triton=} {out_deepgemm=}")
+        # can be enabled for debugging
+        # print(
+        #     f"{diff=} "
+        #     f"{(out_triton - out_deepgemm).abs().mean()=} "
+        #     f"{(out_triton - out_deepgemm).abs().sum()=} "
+        #     f"{torch.sum(out_triton != out_deepgemm)=} "
+        # )
+        # print(f"{a=} {b=} {bias=} {out_triton=} {out_deepgemm=}")
         return out_deepgemm
 
     return _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
