@@ -235,7 +235,10 @@ def _matmul_persistent_deepgemm(
     dtype = a.dtype
     out = torch.empty((M, N), device=a.device, dtype=dtype)
 
+    # useful for e.g. train backward; may be improved later
+    a = a.contiguous()
     b_transpose = b.transpose(0, 1).contiguous()
+
     deep_gemm.bf16_gemm_nt(a, b_transpose, out)
 
     # TODO can this be put in DeepGEMM's `c`?
