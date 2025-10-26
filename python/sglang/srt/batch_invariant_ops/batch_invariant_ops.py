@@ -16,11 +16,14 @@ if ENABLE_JIT_DEEPGEMM:
     import deep_gemm
 
 _ENABLE_MM_DEEPGEMM = get_bool_env_var(
-    "SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_DEEPGEMM"
+    "SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_DEEPGEMM", True
 )
 _ENABLE_MM_COMPARISON_TEST = get_bool_env_var(
     "SGLANG_BATCH_INVARIANT_OPS_ENABLE_MM_COMPARISON_TEST"
 )
+
+if not _ENABLE_MM_DEEPGEMM:
+    print("Disable DeepGEMM in batch invariant ops. Performance may be suboptimal.")
 
 __all__ = [
     "set_batch_invariant_mode",
