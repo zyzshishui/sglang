@@ -260,6 +260,7 @@ def matmul_persistent(
             f"{(out_triton - out_deepgemm).abs().sum()=} "
             f"{torch.sum(out_triton != out_deepgemm)=} "
         )
+        print(f"{a=} {b=} {bias=} {out_triton=} {out_deepgemm=}")
         return out_deepgemm
 
     return _matmul_persistent_deepgemm(a=a, b=b, bias=bias)
