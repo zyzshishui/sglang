@@ -1,9 +1,11 @@
 # Copied and adapted from: https://github.com/hao-ai-lab/FastVideo
 
+import inspect
 import logging
 from typing import TYPE_CHECKING
 
 import torch
+import torch.distributed as dist
 import torch.distributed._functional_collectives as ft_c
 from packaging.version import parse
 from torch.distributed.tensor.experimental._attention import _cp_options
@@ -202,6 +204,52 @@ def ring_attn(
     # Create an adapter function that matches the signature expected by
     # _templated_ring_attention. The `attn_impl` already has dropout and
     # causal settings configured during its initialization.
+    forward_params = inspect.signature(attn_impl.forward).parameters
+    supports_return_lse = "return_softmax_lse" in forward_params
+
+    def _compute_softmax_lse(
+        q: torch.Tensor, k: torch.Tensor, is_causal_flag: bool, chunk_size: int = 128
+    ) -> torch.Tensor:
+        # Compute logsumexp over key dimension without materializing the full
+        # attention matrix. This avoids OOM when sequence length is large.
+        scale = getattr(attn_impl, "softmax_scale", 1.0)
+        q_heads = q.transpose(1, 2).to(torch.float32)  # [B, H, S, D]
+        k_heads = k.transpose(1, 2).to(torch.float32)  # [B, H_k, S, D]
+
+        if k_heads.shape[1] != q_heads.shape[1]:
+            assert (
+                q_heads.shape[1] % k_heads.shape[1] == 0
+            ), "Q/K heads must be compatible for GQA"
+            repeat = q_heads.shape[1] // k_heads.shape[1]
+            k_heads = k_heads.repeat_interleave(repeat, dim=1)
+
+        b, h, s_q, _ = q_heads.shape
+        lse = torch.full((b, h, s_q), float("-inf"), device=q_heads.device)
+
+        q_pos = (
+            torch.arange(s_q, device=q_heads.device).view(1, 1, s_q, 1).to(torch.int64)
+        )
+
+        for start in range(0, k_heads.shape[2], chunk_size):
+            end = min(start + chunk_size, k_heads.shape[2])
+            k_chunk = k_heads[:, :, start:end, :]  # [B, H, chunk, D]
+            logits = torch.matmul(
+                q_heads, k_chunk.transpose(-1, -2)
+            )  # [B, H, S, chunk]
+            logits = logits * scale
+
+            if is_causal_flag:
+                k_pos = (
+                    torch.arange(start, end, device=q_heads.device)
+                    .view(1, 1, 1, -1)
+                    .to(torch.int64)
+                )
+                logits = logits.masked_fill(k_pos > q_pos, float("-inf"))
+
+            chunk_lse = torch.logsumexp(logits, dim=-1)
+            lse = torch.logaddexp(lse, chunk_lse)
+
+        return lse
 
     # Note: Please be aware that Attention Backend and Ring Attention may require different QKV tensor shapes.
     # For example, FlashAttention expects the format to be BSHD.
@@ -213,14 +261,33 @@ def ring_attn(
         q = torch.permute(q, [0, 2, 1, 3])
         k = torch.permute(k, [0, 2, 1, 3])
         v = torch.permute(v, [0, 2, 1, 3])
-        # logger.warning(f"Warning: return_s·oftmax_lse is only supported for FlashAttentionImpl")
-        output, softmax_lse, *rest = attn_impl.forward(
-            q,
-            k,
-            v,
-            attn_metadata=None,
-            return_softmax_lse=True,
-        )
+        is_causal_flag = bool(kwargs.get("is_causal", False))
+        rest = []
+
+        if supports_return_lse:
+            attn_out = attn_impl.forward(
+                q,
+                k,
+                v,
+                attn_metadata=None,
+                return_softmax_lse=True,
+            )
+        else:
+            attn_out = attn_impl.forward(
+                q,
+                k,
+                v,
+                attn_metadata=None,
+            )
+
+        if isinstance(attn_out, tuple):
+            output, softmax_lse, *rest = attn_out
+        else:
+            output, softmax_lse = attn_out, None
+
+        if softmax_lse is None:
+            softmax_lse = _compute_softmax_lse(q, k, is_causal_flag)
+
         output = torch.permute(output, [0, 2, 1, 3])
         return output, softmax_lse, *rest
 
@@ -228,28 +295,57 @@ def ring_attn(
     # segment_id for the attention function.
     use_segment_id = parse(torch.__version__).release >= parse("2.6.0").release
 
-    attn_kwargs = dict(
-        mesh=ring_pg,
-        op=attn_callable_adapter,
-        dropout_p=dropout_p,
-        is_causal=is_causal,
-        query=query,
-        key=key,
-        value=value,
-    )
+    # Torch changed the signature of _templated_ring_attention several times.
+    # Instead of relying on version numbers, build kwargs based on the actual
+    # callable signature to stay compatible with both old (mesh/dropout_p) and
+    # new (group/seq_dim) forms.
+    signature_params = inspect.signature(_templated_ring_attention).parameters
+    attn_kwargs = {
+        "op": attn_callable_adapter,
+        "is_causal": is_causal,
+        "query": query,
+        "key": key,
+        "value": value,
+    }
 
-    if use_segment_id:
-        # For torch >= 2.6, segment_id is required. The value '1' is a placeholder
-        # as we are not using complex segmentation features.
-        out, *_ = _templated_ring_attention(
-            seq_dim=1,  # segment_id
-            **attn_kwargs,
-        )
+    if "group" in signature_params:
+        attn_kwargs["group"] = ring_pg
+    elif "mesh" in signature_params:
+        attn_kwargs["mesh"] = ring_pg
     else:
-        out, *_ = _templated_ring_attention(
-            **attn_kwargs,
+        raise RuntimeError(
+            "Unsupported _templated_ring_attention signature: missing group/mesh"
         )
 
-    # Permute the output back to [B, S, H, D] layout.
-    output = torch.permute(out, [0, 2, 1, 3])
-    return output
+    if "dropout_p" in signature_params:
+        attn_kwargs["dropout_p"] = dropout_p
+
+    seq_dim_index = 2  # sequence dimension for [B, H, S, D]
+    if "seq_dim" in signature_params:
+        attn_kwargs["seq_dim"] = seq_dim_index
+    elif use_segment_id:
+        # Older builds may still refer to this as segment_id.
+        attn_kwargs["segment_id"] = seq_dim_index
+
+    # Fast path: backend returns LSE so we can use ring attention directly.
+    if supports_return_lse:
+        out, *_ = _templated_ring_attention(**attn_kwargs)
+        output = torch.permute(out, [0, 2, 1, 3])
+        return output
+
+    # Fallback: backend cannot return LSE (e.g., SDPA on ROCm). Gather KV across
+    # the ring group and run local attention to avoid the expensive manual LSE.
+    world_size = dist.get_world_size(ring_pg)
+    k_bufs = [torch.empty_like(key) for _ in range(world_size)]
+    v_bufs = [torch.empty_like(value) for _ in range(world_size)]
+    dist.all_gather(k_bufs, key, group=ring_pg)
+    dist.all_gather(v_bufs, value, group=ring_pg)
+    key_full = torch.cat(k_bufs, dim=2)  # concat along sequence dim
+    value_full = torch.cat(v_bufs, dim=2)
+
+    q_bshd = torch.permute(query, [0, 2, 1, 3])
+    k_bshd = torch.permute(key_full, [0, 2, 1, 3])
+    v_bshd = torch.permute(value_full, [0, 2, 1, 3])
+
+    out = attn_impl.forward(q_bshd, k_bshd, v_bshd, attn_metadata=None)
+    return out

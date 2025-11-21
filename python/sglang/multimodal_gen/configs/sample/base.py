@@ -415,6 +415,19 @@ class SamplingParams:
 
         # Get fields defined directly in the subclass (not inherited)
         subclass_defined_fields = set(type(self).__annotations__.keys())
+        override_allowed_fields = {
+            "num_inference_steps",
+            "num_frames",
+            "height",
+            "width",
+            "fps",
+            "guidance_scale",
+            "guidance_rescale",
+            "negative_prompt",
+            "seed",
+            "output_path",
+            "output_file_name",
+        }
 
         # Compare against current instance to avoid constructing a default instance
         default_params = SamplingParams()
@@ -432,7 +445,10 @@ class SamplingParams:
                 if field_name != "output_file_name"
                 else user_params.output_file_path is not None
             )
-            if is_user_modified and field_name not in subclass_defined_fields:
+            if is_user_modified and (
+                field_name not in subclass_defined_fields
+                or field_name in override_allowed_fields
+            ):
                 if hasattr(self, field_name):
                     setattr(self, field_name, user_value)
 
