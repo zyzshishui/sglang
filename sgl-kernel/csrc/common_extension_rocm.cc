@@ -20,6 +20,12 @@ limitations under the License.
 
 TORCH_LIBRARY_EXPAND(sgl_kernel, m) {
   /*
+   * From csrc/gemm
+   */
+  m.def("ck_linear(Tensor input, Tensor weight, Tensor? bias) -> Tensor");
+  m.impl("ck_linear", torch::kCUDA, &ck_linear);
+
+  /*
    * From csrc/activation
    */
   m.def("silu_and_mul(Tensor! out, Tensor input) -> ()");

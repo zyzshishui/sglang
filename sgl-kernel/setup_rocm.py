@@ -24,6 +24,7 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 root = Path(__file__).parent.resolve()
 arch = platform.machine().lower()
+rocm_path = Path(os.environ.get("ROCM_PATH", "/opt/rocm"))
 
 
 def _get_version():
@@ -38,6 +39,8 @@ include_dirs = [
     root / "include",
     root / "include" / "impl",
     root / "csrc",
+    rocm_path / "include" / "ck",
+    rocm_path / "include" / "ck_tile",
 ]
 
 sources = [
@@ -45,6 +48,7 @@ sources = [
     "csrc/allreduce/quick_all_reduce.cu",
     "csrc/common_extension_rocm.cc",
     "csrc/elementwise/activation.cu",
+    "csrc/gemm/ck_linear.hip",
     "csrc/grammar/apply_token_bitmask_inplace_cuda.cu",
     "csrc/moe/moe_align_kernel.cu",
     "csrc/moe/moe_topk_softmax_kernels.cu",
@@ -55,7 +59,11 @@ sources = [
 
 cxx_flags = ["-O3"]
 libraries = ["hiprtc", "amdhip64", "c10", "torch", "torch_python"]
-extra_link_args = ["-Wl,-rpath,$ORIGIN/../../torch/lib", f"-L/usr/lib/{arch}-linux-gnu"]
+extra_link_args = [
+    "-Wl,-rpath,$ORIGIN/../../torch/lib",
+    f"-L/usr/lib/{arch}-linux-gnu",
+    f"{rocm_path}/lib/libdevice_gemm_operations.a",
+]
 
 default_target = "gfx942"
 amdgpu_target = os.environ.get("AMDGPU_TARGET", default_target)

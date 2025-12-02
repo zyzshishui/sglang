@@ -34,6 +34,7 @@ from sglang.multimodal_gen.runtime.models.parameter import (
 
 # yapf: enable
 from sglang.multimodal_gen.runtime.models.utils import set_weight_attrs
+from sglang.multimodal_gen.runtime.utils.common import is_hip
 from sglang.multimodal_gen.runtime.utils.logging_utils import init_logger
 
 logger = init_logger(__name__)
@@ -149,6 +150,9 @@ class UnquantizedLinearMethod(LinearMethodBase):
     def apply(
         self, layer: torch.nn.Module, x: torch.Tensor, bias: torch.Tensor | None = None
     ) -> torch.Tensor:
+        if is_hip() and getattr(layer, "is_replicated", False):
+            return torch.ops.sgl_kernel.ck_linear(x, layer.weight, bias)
+
         output = (
             F.linear(x, layer.weight, bias)
             if torch.cuda.is_available() or bias is None
@@ -242,6 +246,7 @@ class ReplicatedLinear(LinearBase):
             self.params_dtype,
             weight_loader=self.weight_loader,
         )
+        self.is_replicated = True
 
         if bias:
             self.bias = Parameter(

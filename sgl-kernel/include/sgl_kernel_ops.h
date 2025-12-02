@@ -190,6 +190,7 @@ void gelu_quick(at::Tensor& out, const at::Tensor& input);
 /*
  * From csrc/gemm
  */
+torch::Tensor ck_linear(const at::Tensor& input, const at::Tensor& weight, const std::optional<at::Tensor>& bias);
 torch::Tensor awq_dequantize(torch::Tensor qweight, torch::Tensor scales, torch::Tensor qzeros);
 void cutlass_scaled_fp4_mm(
     torch::Tensor& D,
