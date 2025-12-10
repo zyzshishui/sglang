@@ -253,16 +253,30 @@ class RuntimeEndpoint(BaseBackend):
     ) -> ChoicesDecision:
         assert temperature <= 1e-5
 
-        # First, get the token count for the base text (for computing logprob_start_len)
+        # Cache common prefix to get token count
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         obj = self._generate_http_request(s, data)
         prompt_len = obj["meta_info"]["prompt_tokens"]
+        cached_from_first = obj["meta_info"].get("cached_tokens", 0)
+        
+        # DEBUG: Test different logprob_start_len values to understand MI325 behavior
+        test_text = s.text_ + choices[0]
+        for test_lsl in [0, 50, cached_from_first - 10 if cached_from_first > 10 else 0, prompt_len - 2]:
+            data = {
+                "text": [test_text],
+                "sampling_params": {"max_new_tokens": 0, "temperature": 0},
+                "return_logprob": True,
+                "return_text_in_logprobs": True,
+                "logprob_start_len": test_lsl,
+            }
+            test_obj = self._generate_http_request(s, data)
+            test_lp = test_obj[0]["meta_info"]["input_token_logprobs"]
+            test_cached = test_obj[0]["meta_info"].get("cached_tokens", 0)
+            print(f"[DEBUG select] TEST logprob_start_len={test_lsl}: cached_tokens={test_cached}, logprobs_len={len(test_lp)}")
         
         # We need logprobs from (prompt_len - 2) for token healing
-        # But on MI325, when logprob_start_len == cached_tokens, only 1 entry is returned
-        # Work around by using prompt_len - 10 to stay well below the cache edge,
-        # then slice to get only the tokens we need
-        logprob_start_len_for_request = max(prompt_len - 10, 0)
+        # On AMD/ROCm (MI325), when logprob_start_len >= cached_tokens, only 1 entry is returned.
+        # Work around: use logprob_start_len=0 to get ALL logprobs, then slice manually.
         logprob_start_len_for_slice = max(prompt_len - 2, 0)
 
         data = {
@@ -273,12 +287,12 @@ class RuntimeEndpoint(BaseBackend):
             },
             "return_logprob": True,
             "return_text_in_logprobs": True,
-            "logprob_start_len": logprob_start_len_for_request,
+            "logprob_start_len": 0,  # Request ALL logprobs to work around MI325 caching bug
         }
         obj = self._generate_http_request(s, data)
 
         # DEBUG: Print logprob info for CI debugging
-        print(f"[DEBUG select] prompt_len={prompt_len}, logprob_start_len_for_request={logprob_start_len_for_request}, logprob_start_len_for_slice={logprob_start_len_for_slice}")
+        print(f"[DEBUG select] prompt_len={prompt_len}, logprob_start_len_for_slice={logprob_start_len_for_slice}, num_choices={len(choices)}")
         for i, r in enumerate(obj):
             lp = r["meta_info"]["input_token_logprobs"]
             choice_prompt_tokens = r["meta_info"]["prompt_tokens"]
@@ -286,14 +300,13 @@ class RuntimeEndpoint(BaseBackend):
             print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, cached_tokens={cached_tokens}, logprobs len={len(lp)}, first3={lp[:3] if lp else 'EMPTY'}")
 
         # Slice logprobs to only include tokens from logprob_start_len_for_slice onwards
-        # We need to offset by logprob_start_len_for_request since that's where the logprobs start
-        slice_offset = logprob_start_len_for_slice - logprob_start_len_for_request
+        # Since we requested logprob_start_len=0, the logprobs start from position 0
         input_token_logprobs = []
         for r in obj:
             full_logprobs = r["meta_info"]["input_token_logprobs"]
-            sliced = full_logprobs[slice_offset:] if len(full_logprobs) > slice_offset else full_logprobs
+            sliced = full_logprobs[logprob_start_len_for_slice:] if len(full_logprobs) > logprob_start_len_for_slice else full_logprobs
             input_token_logprobs.append(sliced)
-            print(f"[DEBUG select] sliced: slice_offset={slice_offset}, full_len={len(full_logprobs)}, sliced_len={len(sliced)}")
+            print(f"[DEBUG select] sliced: logprob_start_len_for_slice={logprob_start_len_for_slice}, full_len={len(full_logprobs)}, sliced_len={len(sliced)}")
         
         output_token_logprobs = [r["meta_info"]["output_token_logprobs"] for r in obj]
         normalized_prompt_logprobs = [
