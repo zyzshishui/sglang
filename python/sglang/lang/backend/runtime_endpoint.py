@@ -271,9 +271,10 @@ class RuntimeEndpoint(BaseBackend):
             },
             "return_logprob": True,
             "return_text_in_logprobs": True,
-            # Don't use logprob_start_len - get all logprobs and slice manually
+            # Use logprob_start_len=0 to get all logprobs and slice manually
             # This works around MI325 bug where logprob_start_len >= cached_tokens
             # returns only 1 entry
+            "logprob_start_len": 0,
         }
         obj = self._generate_http_request(s, data)
 
