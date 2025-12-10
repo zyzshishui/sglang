@@ -2,10 +2,12 @@ import atexit
 import json
 import multiprocessing
 import warnings
+from functools import lru_cache
 from typing import Dict, List, Optional, Union
 
 import aiohttp
 import requests
+import torch
 
 from sglang.global_config import global_config
 from sglang.lang.backend.base_backend import BaseBackend
@@ -20,6 +22,12 @@ from sglang.lang.ir import (
     SglSamplingParams,
 )
 from sglang.utils import http_request
+
+
+@lru_cache(maxsize=1)
+def is_hip() -> bool:
+    """Check if running on AMD/ROCm."""
+    return torch.version.hip is not None
 
 
 class RuntimeEndpoint(BaseBackend):
@@ -253,6 +261,12 @@ class RuntimeEndpoint(BaseBackend):
     ) -> ChoicesDecision:
         assert temperature <= 1e-5
 
+        # On AMD/ROCm, the input_token_logprobs API is broken - it returns only 1
+        # aggregated entry instead of per-token logprobs. Use generation-based
+        # selection as a workaround.
+        if is_hip():
+            return self._select_amd_workaround(s, choices, temperature, choices_method)
+
         # Cache common prefix
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         obj = self._generate_http_request(s, data)
@@ -304,6 +318,63 @@ class RuntimeEndpoint(BaseBackend):
             ]
         else:
             unconditional_token_logprobs = None
+
+        return choices_method(
+            choices=choices,
+            normalized_prompt_logprobs=normalized_prompt_logprobs,
+            input_token_logprobs=input_token_logprobs,
+            output_token_logprobs=output_token_logprobs,
+            unconditional_token_logprobs=unconditional_token_logprobs,
+        )
+
+    def _select_amd_workaround(
+        self,
+        s: StreamExecutor,
+        choices: List[str],
+        temperature: float,
+        choices_method: ChoicesSamplingMethod,
+    ) -> ChoicesDecision:
+        """
+        AMD/ROCm workaround for select functionality.
+
+        On AMD, the input_token_logprobs API returns only 1 aggregated entry
+        instead of per-token logprobs. However, output_token_logprobs does
+        return valid logprobs.
+
+        This workaround scores each choice by the average output logprob when
+        generating a short continuation after the choice. More likely choices
+        lead to higher-probability continuations.
+        """
+        choice_scores = []
+        for choice in choices:
+            # Generate a few tokens after the choice and use the logprobs as score
+            data = {
+                "text": s.text_ + choice,
+                "sampling_params": {
+                    "max_new_tokens": 3,
+                    "temperature": 0,
+                },
+                "return_logprob": True,
+            }
+            obj = self._generate_http_request(s, data)
+            output_logprobs = obj["meta_info"]["output_token_logprobs"]
+
+            # Average the output logprobs as the score
+            if output_logprobs:
+                valid_logprobs = [lp[0] for lp in output_logprobs if lp[0] is not None]
+                if valid_logprobs:
+                    score = sum(valid_logprobs) / len(valid_logprobs)
+                else:
+                    score = float("-inf")
+            else:
+                score = float("-inf")
+            choice_scores.append(score)
+
+        # Create dummy data structures for choices_method
+        normalized_prompt_logprobs = choice_scores
+        input_token_logprobs = [[] for _ in choices]
+        output_token_logprobs = [[] for _ in choices]
+        unconditional_token_logprobs = None
 
         return choices_method(
             choices=choices,

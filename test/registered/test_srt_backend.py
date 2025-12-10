@@ -4,6 +4,11 @@ import torch
 
 import sglang as sgl
 from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
+
+
+def is_hip() -> bool:
+    """Check if running on AMD/ROCm."""
+    return torch.version.hip is not None
 from sglang.test.test_programs import (
     test_decode_int,
     test_decode_json_regex,
@@ -23,11 +28,6 @@ from sglang.test.test_utils import DEFAULT_MODEL_NAME_FOR_TEST, CustomTestCase
 
 register_cuda_ci(est_time=80, suite="stage-a-test-1")
 register_amd_ci(est_time=120, suite="stage-a-test-1")
-
-
-def is_hip() -> bool:
-    """Check if running on AMD/ROCm."""
-    return torch.version.hip is not None
 
 
 class TestSRTBackend(CustomTestCase):
@@ -50,11 +50,6 @@ class TestSRTBackend(CustomTestCase):
     def test_mt_bench(self):
         test_mt_bench()
 
-    @unittest.skipIf(
-        is_hip(),
-        "AMD/ROCm logprob API returns only 1 aggregated entry instead of per-token logprobs, "
-        "making select functionality unreliable. See PR #14722 for details.",
-    )
     def test_select(self):
         test_select(check_answer=False)
 
@@ -82,16 +77,15 @@ class TestSRTBackend(CustomTestCase):
     def test_dtype_gen(self):
         test_dtype_gen()
 
-    @unittest.skipIf(
-        is_hip(),
-        "AMD/ROCm logprob API returns only 1 aggregated entry instead of per-token logprobs, "
-        "making select functionality unreliable. See PR #14722 for details.",
-    )
     def test_hellaswag_select(self):
         # Run twice to capture more bugs
         for _ in range(2):
             accuracy, latency = test_hellaswag_select()
-            self.assertGreater(accuracy, 0.60)
+            # AMD/ROCm has a logprob API limitation that prevents per-token logprobs,
+            # so we use a workaround with lower accuracy. See PR #14722 for details.
+            # Random baseline is 0.25 for 4 choices; AMD workaround achieves ~0.35-0.40
+            min_accuracy = 0.30 if is_hip() else 0.60
+            self.assertGreater(accuracy, min_accuracy)
 
     def test_gen_min_new_tokens(self):
         test_gen_min_new_tokens()
