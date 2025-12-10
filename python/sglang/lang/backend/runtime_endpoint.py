@@ -270,15 +270,18 @@ class RuntimeEndpoint(BaseBackend):
             "return_text_in_logprobs": True,
             "logprob_start_len": logprob_start_len,
         }
+        # DEBUG: Also try without logprob_start_len to see full logprobs
+        print(f"[DEBUG select] choices={choices[:2]}..., text_len={len(s.text_)}")
         obj = self._generate_http_request(s, data)
 
         # DEBUG: Print logprob info for CI debugging
         print(f"[DEBUG select] prompt_len={prompt_len}, logprob_start_len={logprob_start_len}, num_choices={len(choices)}")
         for i, r in enumerate(obj):
             lp = r["meta_info"]["input_token_logprobs"]
-            print(f"[DEBUG select] choice {i}: input_token_logprobs len={len(lp)}, data={lp[:3] if lp else 'EMPTY'}")
-            if not lp:
-                print(f"[DEBUG select] choice {i} EMPTY - full meta_info: {r['meta_info']}")
+            choice_prompt_tokens = r["meta_info"]["prompt_tokens"]
+            print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, input_token_logprobs len={len(lp)}, data={lp[:3] if lp else 'EMPTY'}")
+            if len(lp) <= 1:
+                print(f"[DEBUG select] choice {i} has <=1 logprobs - full meta_info: {r['meta_info']}")
 
         input_token_logprobs = [r["meta_info"]["input_token_logprobs"] for r in obj]
         output_token_logprobs = [r["meta_info"]["output_token_logprobs"] for r in obj]
