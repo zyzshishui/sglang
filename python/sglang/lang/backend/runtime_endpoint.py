@@ -257,9 +257,12 @@ class RuntimeEndpoint(BaseBackend):
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         obj = self._generate_http_request(s, data)
         prompt_len = obj["meta_info"]["prompt_tokens"]
+        # NOTE: We need logprobs from (prompt_len - 2) for token healing
+        # But on some backends (MI325), logprob_start_len >= cached_tokens causes issues
+        # So we request all logprobs and slice manually
         logprob_start_len = max(prompt_len - 2, 0)  # For token healing
 
-        # Compute logprob
+        # Compute logprob - request all logprobs to work around MI325 caching bug
         data = {
             "text": [s.text_ + c for c in choices],
             "sampling_params": {
@@ -268,10 +271,10 @@ class RuntimeEndpoint(BaseBackend):
             },
             "return_logprob": True,
             "return_text_in_logprobs": True,
-            "logprob_start_len": logprob_start_len,
+            # Don't use logprob_start_len - get all logprobs and slice manually
+            # This works around MI325 bug where logprob_start_len >= cached_tokens
+            # returns only 1 entry
         }
-        # DEBUG: Also try without logprob_start_len to see full logprobs
-        print(f"[DEBUG select] choices={choices[:2]}..., text_len={len(s.text_)}")
         obj = self._generate_http_request(s, data)
 
         # DEBUG: Print logprob info for CI debugging
@@ -279,15 +282,22 @@ class RuntimeEndpoint(BaseBackend):
         for i, r in enumerate(obj):
             lp = r["meta_info"]["input_token_logprobs"]
             choice_prompt_tokens = r["meta_info"]["prompt_tokens"]
-            print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, input_token_logprobs len={len(lp)}, data={lp[:3] if lp else 'EMPTY'}")
-            if len(lp) <= 1:
-                print(f"[DEBUG select] choice {i} has <=1 logprobs - full meta_info: {r['meta_info']}")
+            print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, input_token_logprobs len={len(lp)}, first3={lp[:3] if lp else 'EMPTY'}, last3={lp[-3:] if len(lp) >= 3 else lp}")
 
-        input_token_logprobs = [r["meta_info"]["input_token_logprobs"] for r in obj]
+        # Slice logprobs to only include tokens from logprob_start_len onwards
+        # This is needed because we request all logprobs to work around MI325 bug
+        input_token_logprobs = []
+        for r in obj:
+            full_logprobs = r["meta_info"]["input_token_logprobs"]
+            # Slice to only keep tokens from logprob_start_len onwards
+            sliced = full_logprobs[logprob_start_len:] if len(full_logprobs) > logprob_start_len else full_logprobs
+            input_token_logprobs.append(sliced)
+            print(f"[DEBUG select] sliced logprobs: full_len={len(full_logprobs)}, sliced_len={len(sliced)}, sliced={sliced[:3] if sliced else 'EMPTY'}")
+        
         output_token_logprobs = [r["meta_info"]["output_token_logprobs"] for r in obj]
         normalized_prompt_logprobs = [
-            compute_normalized_prompt_logprobs(r["meta_info"]["input_token_logprobs"])
-            for r in obj
+            compute_normalized_prompt_logprobs(lp)
+            for lp in input_token_logprobs
         ]
 
         # Remove extra token if no token healing occurred
