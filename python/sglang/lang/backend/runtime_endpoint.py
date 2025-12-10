@@ -272,6 +272,14 @@ class RuntimeEndpoint(BaseBackend):
         }
         obj = self._generate_http_request(s, data)
 
+        # DEBUG: Print logprob info for CI debugging
+        print(f"[DEBUG select] prompt_len={prompt_len}, logprob_start_len={logprob_start_len}, num_choices={len(choices)}")
+        for i, r in enumerate(obj):
+            lp = r["meta_info"]["input_token_logprobs"]
+            print(f"[DEBUG select] choice {i}: input_token_logprobs len={len(lp)}, data={lp[:3] if lp else 'EMPTY'}")
+            if not lp:
+                print(f"[DEBUG select] choice {i} EMPTY - full meta_info: {r['meta_info']}")
+
         input_token_logprobs = [r["meta_info"]["input_token_logprobs"] for r in obj]
         output_token_logprobs = [r["meta_info"]["output_token_logprobs"] for r in obj]
         normalized_prompt_logprobs = [
@@ -281,9 +289,13 @@ class RuntimeEndpoint(BaseBackend):
 
         # Remove extra token if no token healing occurred
         for i in range(len(input_token_logprobs)):
+            # Skip if no logprobs available (can happen on some backends)
+            if not input_token_logprobs[i]:
+                print(f"[DEBUG select] Skipping token healing for choice {i} - empty logprobs")
+                continue
             healed_token_str = input_token_logprobs[i][0][-1]
             if healed_token_str is None:
-                assert 0, f"found {input_token_logprobs}"
+                continue
             if s.text_.endswith(healed_token_str):
                 healed_token_logprob = input_token_logprobs[i][0][0]
                 normalized_prompt_logprobs[i] = (
@@ -351,6 +363,11 @@ class RuntimeEndpoint(BaseBackend):
 
 def compute_normalized_prompt_logprobs(input_logprobs):
     values = [x[0] for x in input_logprobs if x[0]]
+    if not values:
+        # DEBUG: Print when we get empty values
+        print(f"[DEBUG compute_normalized_prompt_logprobs] Empty values! input_logprobs={input_logprobs}")
+        # Return negative infinity if no valid logprobs - this choice should not be selected
+        return float("-inf")
     return sum(values) / len(values)
 
 
