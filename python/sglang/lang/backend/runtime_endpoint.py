@@ -253,18 +253,31 @@ class RuntimeEndpoint(BaseBackend):
     ) -> ChoicesDecision:
         assert temperature <= 1e-5
 
-        # Cache common prefix
+        # First, get the token count for the base text (for computing logprob_start_len)
         data = {"text": s.text_, "sampling_params": {"max_new_tokens": 0}}
         obj = self._generate_http_request(s, data)
         prompt_len = obj["meta_info"]["prompt_tokens"]
-        # NOTE: We need logprobs from (prompt_len - 2) for token healing
-        # But on some backends (MI325), logprob_start_len >= cached_tokens causes issues
-        # So we request all logprobs and slice manually
-        logprob_start_len = max(prompt_len - 2, 0)  # For token healing
+        # We need logprobs from (prompt_len - 2) for token healing
+        # But on MI325, this causes issues. Try using a fixed low value first to diagnose.
+        logprob_start_len_original = max(prompt_len - 2, 0)
+        
+        # DEBUG: Test with different logprob_start_len values
+        # First test with a low value (100) to see if we get more logprobs
+        test_logprob_start_len = min(100, prompt_len - 2) if prompt_len > 102 else 0
+        data = {
+            "text": [s.text_ + choices[0]],  # Just test with first choice
+            "sampling_params": {"max_new_tokens": 0, "temperature": 0},
+            "return_logprob": True,
+            "return_text_in_logprobs": True,
+            "logprob_start_len": test_logprob_start_len,
+        }
+        test_obj = self._generate_http_request(s, data)
+        test_lp = test_obj[0]["meta_info"]["input_token_logprobs"]
+        test_cached = test_obj[0]["meta_info"].get("cached_tokens", 0)
+        print(f"[DEBUG select] TEST with logprob_start_len={test_logprob_start_len}: cached_tokens={test_cached}, logprobs_len={len(test_lp)}")
 
-        # Compute logprob - request all logprobs to work around MI325 caching bug
-        # NOTE: On MI325, do NOT set logprob_start_len at all - setting it (even to 0)
-        # causes empty input_token_logprobs to be returned. Let the server use its default.
+        # Now use the original logprob_start_len
+        logprob_start_len = logprob_start_len_original
         data = {
             "text": [s.text_ + c for c in choices],
             "sampling_params": {
@@ -273,6 +286,7 @@ class RuntimeEndpoint(BaseBackend):
             },
             "return_logprob": True,
             "return_text_in_logprobs": True,
+            "logprob_start_len": logprob_start_len,
         }
         obj = self._generate_http_request(s, data)
 
@@ -281,22 +295,15 @@ class RuntimeEndpoint(BaseBackend):
         for i, r in enumerate(obj):
             lp = r["meta_info"]["input_token_logprobs"]
             choice_prompt_tokens = r["meta_info"]["prompt_tokens"]
-            print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, input_token_logprobs len={len(lp)}, first3={lp[:3] if lp else 'EMPTY'}, last3={lp[-3:] if len(lp) >= 3 else lp}")
+            cached_tokens = r["meta_info"].get("cached_tokens", 0)
+            print(f"[DEBUG select] choice {i}: prompt_tokens={choice_prompt_tokens}, cached_tokens={cached_tokens}, logprobs len={len(lp)}, data={lp[:3] if lp else 'EMPTY'}")
 
-        # Slice logprobs to only include tokens from logprob_start_len onwards
-        # This is needed because we request all logprobs to work around MI325 bug
-        input_token_logprobs = []
-        for r in obj:
-            full_logprobs = r["meta_info"]["input_token_logprobs"]
-            # Slice to only keep tokens from logprob_start_len onwards
-            sliced = full_logprobs[logprob_start_len:] if len(full_logprobs) > logprob_start_len else full_logprobs
-            input_token_logprobs.append(sliced)
-            print(f"[DEBUG select] sliced logprobs: full_len={len(full_logprobs)}, sliced_len={len(sliced)}, sliced={sliced[:3] if sliced else 'EMPTY'}")
+        input_token_logprobs = [r["meta_info"]["input_token_logprobs"] for r in obj]
         
         output_token_logprobs = [r["meta_info"]["output_token_logprobs"] for r in obj]
         normalized_prompt_logprobs = [
-            compute_normalized_prompt_logprobs(lp)
-            for lp in input_token_logprobs
+            compute_normalized_prompt_logprobs(r["meta_info"]["input_token_logprobs"])
+            for r in obj
         ]
 
         # Remove extra token if no token healing occurred
