@@ -263,6 +263,8 @@ class RuntimeEndpoint(BaseBackend):
         logprob_start_len = max(prompt_len - 2, 0)  # For token healing
 
         # Compute logprob - request all logprobs to work around MI325 caching bug
+        # NOTE: On MI325, do NOT set logprob_start_len at all - setting it (even to 0)
+        # causes empty input_token_logprobs to be returned. Let the server use its default.
         data = {
             "text": [s.text_ + c for c in choices],
             "sampling_params": {
@@ -271,10 +273,6 @@ class RuntimeEndpoint(BaseBackend):
             },
             "return_logprob": True,
             "return_text_in_logprobs": True,
-            # Use logprob_start_len=0 to get all logprobs and slice manually
-            # This works around MI325 bug where logprob_start_len >= cached_tokens
-            # returns only 1 entry
-            "logprob_start_len": 0,
         }
         obj = self._generate_http_request(s, data)
 
