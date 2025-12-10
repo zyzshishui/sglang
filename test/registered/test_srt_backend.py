@@ -1,5 +1,7 @@
 import unittest
 
+import torch
+
 import sglang as sgl
 from sglang.test.ci.ci_register import register_amd_ci, register_cuda_ci
 from sglang.test.test_programs import (
@@ -23,6 +25,11 @@ register_cuda_ci(est_time=80, suite="stage-a-test-1")
 register_amd_ci(est_time=120, suite="stage-a-test-1")
 
 
+def is_hip() -> bool:
+    """Check if running on AMD/ROCm."""
+    return torch.version.hip is not None
+
+
 class TestSRTBackend(CustomTestCase):
     backend = None
 
@@ -43,6 +50,11 @@ class TestSRTBackend(CustomTestCase):
     def test_mt_bench(self):
         test_mt_bench()
 
+    @unittest.skipIf(
+        is_hip(),
+        "AMD/ROCm logprob API returns only 1 aggregated entry instead of per-token logprobs, "
+        "making select functionality unreliable. See PR #14722 for details.",
+    )
     def test_select(self):
         test_select(check_answer=False)
 
@@ -70,6 +82,11 @@ class TestSRTBackend(CustomTestCase):
     def test_dtype_gen(self):
         test_dtype_gen()
 
+    @unittest.skipIf(
+        is_hip(),
+        "AMD/ROCm logprob API returns only 1 aggregated entry instead of per-token logprobs, "
+        "making select functionality unreliable. See PR #14722 for details.",
+    )
     def test_hellaswag_select(self):
         # Run twice to capture more bugs
         for _ in range(2):
