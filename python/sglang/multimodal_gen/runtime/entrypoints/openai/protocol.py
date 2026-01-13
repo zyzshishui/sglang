@@ -41,6 +41,10 @@ class ImageGenerationsRequest(BaseModel):
     negative_prompt: Optional[str] = None
     enable_teacache: Optional[bool] = False
     diffusers_kwargs: Optional[Dict[str, Any]] = None  # kwargs for diffusers backend
+    # Profiling (SGLang extensions)
+    profile: Optional[bool] = False
+    num_profiled_timesteps: Optional[int] = 5
+    profile_all_stages: Optional[bool] = False
 
 
 # Video API protocol models
@@ -83,6 +87,10 @@ class VideoGenerationsRequest(BaseModel):
     enable_teacache: Optional[bool] = False
     output_path: Optional[str] = None
     diffusers_kwargs: Optional[Dict[str, Any]] = None  # kwargs for diffusers backend
+    # Profiling (SGLang extensions)
+    profile: Optional[bool] = False
+    num_profiled_timesteps: Optional[int] = 5
+    profile_all_stages: Optional[bool] = False
 
 
 class VideoListResponse(BaseModel):

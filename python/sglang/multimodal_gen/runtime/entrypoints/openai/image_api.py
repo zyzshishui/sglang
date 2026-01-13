@@ -62,6 +62,9 @@ def _build_sampling_params_from_request(
     negative_prompt: Optional[str] = None,
     enable_teacache: Optional[bool] = None,
     num_frames: int = 1,
+    profile: Optional[bool] = None,
+    num_profiled_timesteps: Optional[int] = None,
+    profile_all_stages: Optional[bool] = None,
 ) -> SamplingParams:
     if size is None:
         width, height = None, None
@@ -86,6 +89,9 @@ def _build_sampling_params_from_request(
         generator_device=generator_device,
         num_inference_steps=num_inference_steps,
         enable_teacache=enable_teacache,
+        profile=profile,
+        num_profiled_timesteps=num_profiled_timesteps,
+        profile_all_stages=profile_all_stages,
         **({"guidance_scale": guidance_scale} if guidance_scale is not None else {}),
         **({"negative_prompt": negative_prompt} if negative_prompt is not None else {}),
         **({"true_cfg_scale": true_cfg_scale} if true_cfg_scale is not None else {}),
@@ -121,6 +127,9 @@ async def generations(
         true_cfg_scale=request.true_cfg_scale,
         negative_prompt=request.negative_prompt,
         enable_teacache=request.enable_teacache,
+        profile=request.profile,
+        num_profiled_timesteps=request.num_profiled_timesteps,
+        profile_all_stages=request.profile_all_stages,
     )
     batch = prepare_request(
         server_args=get_global_server_args(),
@@ -192,6 +201,9 @@ async def edits(
     num_inference_steps: Optional[int] = Form(None),
     enable_teacache: Optional[bool] = Form(False),
     num_frames: int = Form(1),
+    profile: Optional[bool] = Form(False),
+    num_profiled_timesteps: Optional[int] = Form(5),
+    profile_all_stages: Optional[bool] = Form(False),
 ):
     request_id = generate_request_id()
     # Resolve images from either `image` or `image[]` (OpenAI SDK sends `image[]` when list is provided)
@@ -237,6 +249,9 @@ async def edits(
         num_inference_steps=num_inference_steps,
         enable_teacache=enable_teacache,
         num_frames=num_frames,
+        profile=profile,
+        num_profiled_timesteps=num_profiled_timesteps,
+        profile_all_stages=profile_all_stages,
     )
     batch = prepare_request(
         server_args=get_global_server_args(),

@@ -74,6 +74,9 @@ def _build_sampling_params_from_request(
         "output_file_name": request_id,
         "seed": request.seed,
         "generator_device": request.generator_device,
+        "profile": request.profile,
+        "num_profiled_timesteps": request.num_profiled_timesteps,
+        "profile_all_stages": request.profile_all_stages,
     }
     if request.num_inference_steps is not None:
         sampling_kwargs["num_inference_steps"] = request.num_inference_steps
