@@ -64,7 +64,7 @@ Get trace file in `./logs` and performance summary in `./outputs`
 **Multi LoRA**  
 | metric (ms) | AMD (MI350) | Nvidia (B200) |
 | --- | --- | --- |
-| e2e | 8221.59 | 534.01 |
-| denoise | 8158.32 | 413.38 |
-| text_encode | 54.86 | 101.78 |
-| decode | 5.04 | 16.81 |
+| e2e | 843.34 | 534.01 |
+| denoise | 781.69 | 413.38 |
+| text_encode | 54.39 | 101.78 |
+| decode | 5.03 | 16.81 |
