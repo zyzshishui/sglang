@@ -5,7 +5,7 @@ import gc
 import multiprocessing as mp
 import os
 import time
-from typing import List, Union, Any, Optional, Dict
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from setproctitle import setproctitle
@@ -89,7 +89,7 @@ class GPUWorker:
         self.cfg_group = get_cfg_group()
         self.cfg_cpu_group = self.cfg_group.cpu_group
 
-        self._sleeping:bool = False
+        self._sleeping: bool = False
 
     def init_device_and_model(self) -> None:
         """Initialize the device and load the model."""
@@ -423,9 +423,13 @@ class GPUWorker:
                 iter_materialized_weights(module)
             )
         return checksums
-    
-    def release_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
-        logger.info(f"[SLEEP] GPUWorker.release_memory_occupation rank={self.rank} tags={tags}")
+
+    def release_memory_occupation(
+        self, tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        logger.info(
+            f"[SLEEP] GPUWorker.release_memory_occupation rank={self.rank} tags={tags}"
+        )
         if self._sleeping:
             return {"note": "already sleeping"}
 
@@ -438,9 +442,15 @@ class GPUWorker:
             else:
                 # Most conservative fallback: move all accessible modules to CPU
                 for name in [
-                    "transformer", "transformer_2",
-                    "video_dit", "video_dit_2", "audio_dit",
-                    "vae", "text_encoder", "text_encoder_2", "image_encoder"
+                    "transformer",
+                    "transformer_2",
+                    "video_dit",
+                    "video_dit_2",
+                    "audio_dit",
+                    "vae",
+                    "text_encoder",
+                    "text_encoder_2",
+                    "image_encoder",
                 ]:
                     try:
                         m = self.pipeline.get_module(name)
@@ -463,9 +473,12 @@ class GPUWorker:
         self._sleeping = True
         return {"released": True, "tags": tags}
 
-
-    def resume_memory_occupation(self, tags: Optional[List[str]] = None) -> Dict[str, Any]:
-        logger.info(f"[WAKE ] GPUWorker.resume_memory_occupation rank={self.rank} tags={tags}")
+    def resume_memory_occupation(
+        self, tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        logger.info(
+            f"[WAKE ] GPUWorker.resume_memory_occupation rank={self.rank} tags={tags}"
+        )
         if not self._sleeping:
             return {"note": "already awake"}
 
@@ -476,9 +489,15 @@ class GPUWorker:
                 self.pipeline.wake(tags=tags)
             else:
                 for name in [
-                    "transformer", "transformer_2",
-                    "video_dit", "video_dit_2", "audio_dit",
-                    "vae", "text_encoder", "text_encoder_2", "image_encoder"
+                    "transformer",
+                    "transformer_2",
+                    "video_dit",
+                    "video_dit_2",
+                    "audio_dit",
+                    "vae",
+                    "text_encoder",
+                    "text_encoder_2",
+                    "image_encoder",
                 ]:
                     try:
                         m = self.pipeline.get_module(name)
@@ -497,6 +516,7 @@ class GPUWorker:
 
         self._sleeping = False
         return {"resumed": True, "tags": tags}
+
 
 OOM_MSG = f"""
 OOM detected. Possible solutions:
