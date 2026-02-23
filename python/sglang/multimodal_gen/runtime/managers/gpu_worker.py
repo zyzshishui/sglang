@@ -5,7 +5,7 @@ import gc
 import multiprocessing as mp
 import os
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import torch
 from setproctitle import setproctitle
@@ -442,7 +442,7 @@ class GPUWorker:
                 skipped.append(name)
 
         return moved, skipped
-    
+
     def release_memory_occupation(self) -> Dict[str, Any]:
         logger.info(f"[SLEEP] GPUWorker.release_memory_occupation rank={self.rank}")
         if self._sleeping:
@@ -470,7 +470,7 @@ class GPUWorker:
             "moved": moved,
             "skipped": skipped,
         }
-    
+
     def resume_memory_occupation(self) -> Dict[str, Any]:
         logger.info(f"[WAKE ] GPUWorker.resume_memory_occupation rank={self.rank}")
         if not self._sleeping:
@@ -500,6 +500,7 @@ class GPUWorker:
             "moved": moved,
             "skipped": skipped,
         }
+
 
 OOM_MSG = f"""
 OOM detected. Possible solutions:
