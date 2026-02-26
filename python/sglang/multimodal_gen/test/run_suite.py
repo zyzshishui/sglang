@@ -30,6 +30,10 @@ _UPDATE_WEIGHTS_MODEL_PAIR_IDS = (
 
 SUITES = {
     "1-gpu": [
+        # RL tests
+        "test_e2e_sleep_wake_up.py",
+        "test_update_weights_from_disk.py",
+        # Server tests
         "test_server_a.py",
         "test_server_b.py",
         "test_lora_format_adapter.py",
@@ -37,8 +41,6 @@ SUITES = {
         "../cli/test_generate_t2i_perf.py",
         # unit tests (no server needed)
         "../test_sampling_params_validate.py",
-        "test_update_weights_from_disk.py",
-        "test_e2e_sleep_wake_up.py",
         # add new 1-gpu test files here
     ],
     "2-gpu": [
