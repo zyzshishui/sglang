@@ -677,6 +677,7 @@ def query_gpu_mem_used_mib(gpu_index: int = 0) -> int:
                 used_bytes = int(line.split(":")[-1].strip())
                 return used_bytes // (1024 * 1024)
 
+
 def post_request(
     base_url: str,
     path: str,
