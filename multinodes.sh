@@ -51,6 +51,7 @@ docker_base_cmd() {
   -e NCCL_IB_HCA=${IBDEVICES} \
   -e GLOO_SOCKET_IFNAME=eno0 \
   -e NCCL_SOCKET_IFNAME=eno0 \
+  -e PYTHONPATH=/workspace/sglang/python \
   --name ${container_name} \
   $DOCKER_IMAGE"
 }
@@ -59,7 +60,6 @@ run_docker_prefill() {
   echo "$(docker_base_cmd sglang_r1_prefill) \
   bash -c ' \
   SGLANG_USE_AITER=1 \
-  ROCM_QUICK_REDUCE_QUANTIZATION=INT4 \
   SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=16384 \
   MORI_SHMEM_MODE=ISOLATION \
   MORI_SHMEM_HEAP_SIZE=8589934592 \
@@ -97,7 +97,6 @@ run_docker_decode() {
   echo "$(docker_base_cmd sglang_r1_decode${rank}) \
   bash -c ' \
   SGLANG_USE_AITER=1 \
-  ROCM_QUICK_REDUCE_QUANTIZATION=INT4 \
   SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=256 \
   MORI_SHMEM_MODE=ISOLATION \
   MORI_SHMEM_HEAP_SIZE=8589934592 \
@@ -123,6 +122,7 @@ run_docker_decode() {
     --kv-cache-dtype fp8_e4m3 \
     --ep-dispatch-algorithm fake \
     --load-balance-method round_robin \
+    --prefill-round-robin-balance \
     --decode-log-interval 1000 \
     --log-level warning \
     --watchdog-timeout 3600 \
@@ -194,7 +194,7 @@ do_start() {
     fi
     if [ "$i" -eq 180 ]; then
       echo "[ERROR] Prefill server did not become ready within 15 minutes."
-      exit 1
+            exit 1
     fi
     sleep 5
   done
