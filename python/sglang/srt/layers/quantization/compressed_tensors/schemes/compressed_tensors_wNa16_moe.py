@@ -430,6 +430,8 @@ class CompressedTensorsWNA16TritonMoE(CompressedTensorsWNA16MoE):
         num_experts = layer.w13_weight_packed.shape[0]
         device = layer.w13_weight_packed.device
 
+        # Currently triton path doesn't support g_idx/sort_indices, but replacing the
+        # full-sized tensors from create_weights with empty ones could free some memory.
         layer.w13_weight_g_idx = torch.nn.Parameter(
             torch.empty((num_experts, 0), dtype=torch.int32, device=device),
             requires_grad=False,
