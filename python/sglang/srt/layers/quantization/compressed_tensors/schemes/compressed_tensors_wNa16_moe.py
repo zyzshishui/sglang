@@ -418,7 +418,34 @@ class CompressedTensorsWNA16TritonMoE(CompressedTensorsWNA16MoE):
         if getattr(layer, "is_triton_converted", False):
             return
 
+        if self.actorder:
+            raise ValueError(
+                "act_order is not supported by the Triton W4A16 MoE kernel on ROCm. "
+                "Please use a checkpoint quantized without act_order (desc_act=False)."
+            )
+
+        if not hasattr(layer, "_original_shapes"):
+            layer._original_shapes = {}
+
         num_experts = layer.w13_weight_packed.shape[0]
+        device = layer.w13_weight_packed.device
+
+        layer.w13_weight_g_idx = torch.nn.Parameter(
+            torch.empty((num_experts, 0), dtype=torch.int32, device=device),
+            requires_grad=False,
+        )
+        layer.w2_weight_g_idx = torch.nn.Parameter(
+            torch.empty((num_experts, 0), dtype=torch.int32, device=device),
+            requires_grad=False,
+        )
+        layer.w13_g_idx_sort_indices = torch.nn.Parameter(
+            torch.empty((num_experts, 0), dtype=torch.int32, device=device),
+            requires_grad=False,
+        )
+        layer.w2_g_idx_sort_indices = torch.nn.Parameter(
+            torch.empty((num_experts, 0), dtype=torch.int32, device=device),
+            requires_grad=False,
+        )
 
         # Convert w13 weights: [E, K//8, N] int32 -> [E, N, K//2] uint8
         w13 = layer.w13_weight_packed.data
@@ -441,6 +468,31 @@ class CompressedTensorsWNA16TritonMoE(CompressedTensorsWNA16MoE):
         layer.w2_weight_scale = torch.nn.Parameter(w2_scale, requires_grad=False)
 
         layer.is_triton_converted = True
+
+    def restore_weights_before_loading(self, layer: torch.nn.Module):
+        """Forcibly reverse Triton format back to GPTQ layout before loading weights."""
+        if getattr(layer, "is_triton_converted", False):
+            # Reverse w13 weights: [E, N, K//2] uint8 -> [E, K//8, N] int32
+            w13 = layer.w13_weight_packed.data.view(torch.int32)
+            w13 = w13.transpose(1, 2).contiguous()
+            layer.w13_weight_packed = torch.nn.Parameter(w13, requires_grad=False)
+
+            # Reverse w2 weights: [E, N, K//2] uint8 -> [E, K//8, N] int32
+            w2 = layer.w2_weight_packed.data.view(torch.int32)
+            w2 = w2.transpose(1, 2).contiguous()
+            layer.w2_weight_packed = torch.nn.Parameter(w2, requires_grad=False)
+
+            # Reverse w13 scales: [E, N, K//group_size] -> [E, K//group_size, N]
+            w13_scale = layer.w13_weight_scale.data.transpose(1, 2).contiguous()
+            layer.w13_weight_scale = torch.nn.Parameter(w13_scale, requires_grad=False)
+
+            # Reverse w2 scales: [E, N, K//group_size] -> [E, K//group_size, N]
+            w2_scale = layer.w2_weight_scale.data.transpose(1, 2).contiguous()
+            layer.w2_weight_scale = torch.nn.Parameter(w2_scale, requires_grad=False)
+
+            layer.is_triton_converted = False
+
+        super().restore_weights_before_loading(layer)
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
