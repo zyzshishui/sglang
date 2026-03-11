@@ -727,64 +727,74 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
     def _compute_mrope_positions(
         self, model_runner: ModelRunner, batch: ModelWorkerBatch
     ):
-        # batch_size * [3 * seq_len]
         batch_size = self.seq_lens_cpu.shape[0]
-        mrope_positions_list = [[]] * batch_size
+        decode_mode = self.forward_mode.is_decode()
+        rl_target = get_global_server_args().rl_on_policy_target is not None
+        total_tokens = 0
+        if decode_mode:
+            for batch_idx in range(batch_size):
+                mm_input = batch.multimodal_inputs[batch_idx]
+                if mm_input is None or rl_target:
+                    total_tokens += 1
+                else:
+                    total_tokens += self._expand_mrope_from_input(
+                        mm_input, self.seq_lens_cpu[batch_idx]
+                    ).shape[1]
+        else:
+            total_tokens = int(sum(batch.extend_seq_lens))
+
+        mrope_positions = torch.empty((3, total_tokens), dtype=torch.int64)
+        write_pos = 0
+
         for batch_idx in range(batch_size):
             mm_input = batch.multimodal_inputs[batch_idx]
-            if self.forward_mode.is_decode():
-                # 3 * N
-                if (
-                    mm_input is None
-                    or get_global_server_args().rl_on_policy_target is not None
-                ):
-                    mrope_positions_list[batch_idx] = torch.full(
-                        (3, 1),
-                        self.seq_lens_cpu[batch_idx] - 1,
-                        dtype=torch.int64,
+            if decode_mode:
+                if mm_input is None or rl_target:
+                    mrope_positions[:, write_pos : write_pos + 1] = (
+                        self.seq_lens_cpu[batch_idx] - 1
                     )
+                    write_pos += 1
                 else:
-                    mrope_positions = self._expand_mrope_from_input(
+                    cur_positions = self._expand_mrope_from_input(
                         mm_input, self.seq_lens_cpu[batch_idx]
                     )
-                    mrope_positions_list[batch_idx] = mrope_positions
-            elif self.forward_mode.is_extend(include_draft_extend_v2=True):
-                extend_seq_len, extend_prefix_len = (
-                    batch.extend_seq_lens[batch_idx],
-                    batch.extend_prefix_lens[batch_idx],
-                )
-                if (
-                    mm_input is None
-                    or get_global_server_args().rl_on_policy_target is not None
-                ):
-                    # text only
-                    mrope_positions = torch.tensor(
-                        [
-                            [
-                                pos
-                                for pos in range(
-                                    extend_prefix_len,
-                                    extend_prefix_len + extend_seq_len,
-                                )
-                            ]
-                        ]
-                        * 3
+                    mrope_positions[:, write_pos : write_pos + cur_positions.shape[1]].copy_(
+                        cur_positions
                     )
+                    write_pos += cur_positions.shape[1]
+            elif self.forward_mode.is_extend(include_draft_extend_v2=True):
+                extend_seq_len = batch.extend_seq_lens[batch_idx]
+                extend_prefix_len = batch.extend_prefix_lens[batch_idx]
+                if mm_input is None or rl_target:
+                    cur_positions = torch.arange(
+                        extend_prefix_len,
+                        extend_prefix_len + extend_seq_len,
+                        dtype=torch.int64,
+                    ).unsqueeze(0)
                 else:
-                    mrope_positions = mm_input.mrope_positions[
+                    cur_positions = mm_input.mrope_positions[
                         :,
                         extend_prefix_len : extend_prefix_len + extend_seq_len,
                     ]
-                    if mrope_positions.numel() == 0:
-                        mrope_positions = self._expand_mrope_from_input(
+                    if cur_positions.numel() == 0:
+                        cur_positions = self._expand_mrope_from_input(
                             mm_input, self.seq_lens_cpu[batch_idx]
                         )
-                mrope_positions_list[batch_idx] = mrope_positions
 
-        self.mrope_positions = torch.cat(
-            [pos for pos in mrope_positions_list],
-            dim=1,
-        ).to(dtype=torch.int64, device=model_runner.device, non_blocking=True)
+                width = cur_positions.shape[1]
+                if cur_positions.shape[0] == 1:
+                    mrope_positions[:, write_pos : write_pos + width] = cur_positions
+                else:
+                    mrope_positions[:, write_pos : write_pos + width].copy_(
+                        cur_positions
+                    )
+                write_pos += width
+
+        self.mrope_positions = mrope_positions.to(
+            dtype=torch.int64,
+            device=model_runner.device,
+            non_blocking=True,
+        )
 
     def _pad_tensor_to_size(self, tensor: torch.Tensor, size: int, *, value: int = 0):
         if value == 0:

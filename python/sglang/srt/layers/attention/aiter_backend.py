@@ -36,6 +36,7 @@ try:
         mha_batch_prefill_func,
         mla_prefill_ps_asm_fwd,
         mla_reduce_v1,
+        paged_attention_v1,
         paged_attention_ragged,
     )
     from aiter.mla import mla_decode_fwd, mla_prefill_fwd
@@ -75,11 +76,11 @@ class WrapperDispatch(Enum):
 
 @dataclass
 class ForwardMetadata:
-    kv_indptr: torch.Tensor
-    kv_indices: torch.Tensor
-    qo_indptr: torch.Tensor
-    kv_last_page_len: torch.Tensor
-    max_q_len: int
+    kv_indptr: Optional[torch.Tensor]
+    kv_indices: Optional[torch.Tensor]
+    qo_indptr: Optional[torch.Tensor]
+    kv_last_page_len: Optional[torch.Tensor]
+    max_q_len: Optional[int]
     max_kv_len: Optional[int]
     work_metadata: Optional[torch.Tensor] = None
     work_info_set: Optional[torch.Tensor] = None
@@ -93,6 +94,8 @@ class ForwardMetadata:
     mask_indptr: Optional[torch.Tensor] = None
     max_extend_len: Optional[int] = None
     fp8_prefill_kv_indices: Optional[torch.Tensor] = None
+    page_table: Optional[torch.Tensor] = None
+    seq_lens: Optional[torch.Tensor] = None
 
 
 global_workspace_buffer = None
@@ -171,6 +174,9 @@ class AiterAttnBackend(AttentionBackend):
         self.mask_indptr = torch.zeros(
             (max_bs + 1,), dtype=torch.int64, device=model_runner.device
         )
+        self.page_table_indices = torch.arange(
+            0, self.max_context_len, self.page_size, dtype=torch.int64, device=self.device
+        )
 
         # Create prefill indices updater
         if not skip_prefill:
@@ -236,6 +242,37 @@ class AiterAttnBackend(AttentionBackend):
                 self.max_split_per_batch = 64
 
             self.fix_max_split_per_batch = self.max_split_per_batch
+
+    def _can_use_paged_decode_fast_path(self) -> bool:
+        return (
+            not self.use_mla
+            and self.head_dim == self.v_head_dim
+            and self.kv_cache_dtype != fp8_dtype
+            and self.page_size in (1, 16, 32)
+        )
+
+    def _get_max_seq_len(self, seq_lens: torch.Tensor, seq_lens_cpu) -> int:
+        if seq_lens_cpu is not None:
+            return int(max(seq_lens_cpu))
+        return int(seq_lens.max().item())
+
+    def _build_decode_page_table(
+        self,
+        req_pool_indices: torch.Tensor,
+        max_seq_len: int,
+    ) -> torch.Tensor:
+        max_seq_pages = (max_seq_len + self.page_size - 1) // self.page_size
+        page_table = torch.empty(
+            (req_pool_indices.shape[0], max_seq_pages),
+            dtype=torch.int32,
+            device=self.device,
+        )
+        page_indices = self.req_to_token[
+            req_pool_indices[:, None],
+            self.page_table_indices[:max_seq_pages][None, :],
+        ]
+        page_table.copy_(page_indices // self.page_size)
+        return page_table
 
     def make_mla_decode_meta_data_buffer(self, max_seqlen_qo, batch_size):
         nhead = self.num_head
@@ -453,24 +490,47 @@ class AiterAttnBackend(AttentionBackend):
         # num_kv_splits_indptr = None
 
         if forward_batch.forward_mode.is_decode_or_idle():
-            if spec_info is None or forward_batch.forward_mode.is_idle():
-                kv_indptr[1 : bs + 1] = torch.cumsum(forward_batch.seq_lens, dim=0)
-                kv_indptr = kv_indptr[: bs + 1]
-                kv_indices = torch.empty(
-                    forward_batch.seq_lens_sum, dtype=torch.int32, device=self.device
+            page_table = None
+            seq_lens = forward_batch.seq_lens
+            max_kv_len = None
+            use_paged_decode = (
+                self._can_use_paged_decode_fast_path()
+                and (spec_info is None or forward_batch.forward_mode.is_idle())
+            )
+
+            if use_paged_decode:
+                qo_indptr = self.qo_indptr[: bs + 1]
+                qo_indptr[: bs + 1] = torch.arange(
+                    0, bs + 1, dtype=torch.int32, device=self.device
                 )
-                create_flashinfer_kv_indices_triton[(bs,)](
-                    self.req_to_token,
-                    forward_batch.req_pool_indices,
-                    forward_batch.seq_lens,
-                    kv_indptr,
-                    None,
-                    kv_indices,
-                    self.req_to_token.stride(0),
+                max_kv_len = self._get_max_seq_len(
+                    forward_batch.seq_lens, forward_batch.seq_lens_cpu
                 )
+                page_table = self._build_decode_page_table(
+                    forward_batch.req_pool_indices, max_kv_len
+                )
+                kv_indptr = None
+                kv_indices = None
+                max_q_len = 1
             else:
-                kv_indptr, kv_indices = spec_info.kv_indptr, spec_info.kv_indices
-                bs = kv_indptr.shape[0] - 1
+                if spec_info is None or forward_batch.forward_mode.is_idle():
+                    kv_indptr[1 : bs + 1] = torch.cumsum(forward_batch.seq_lens, dim=0)
+                    kv_indptr = kv_indptr[: bs + 1]
+                    kv_indices = torch.empty(
+                        forward_batch.seq_lens_sum, dtype=torch.int32, device=self.device
+                    )
+                    create_flashinfer_kv_indices_triton[(bs,)](
+                        self.req_to_token,
+                        forward_batch.req_pool_indices,
+                        forward_batch.seq_lens,
+                        kv_indptr,
+                        None,
+                        kv_indices,
+                        self.req_to_token.stride(0),
+                    )
+                else:
+                    kv_indptr, kv_indices = spec_info.kv_indptr, spec_info.kv_indices
+                    bs = kv_indptr.shape[0] - 1
 
             if self.use_mla:
                 qo_indptr = self.qo_indptr_[: bs + 1]
@@ -512,7 +572,7 @@ class AiterAttnBackend(AttentionBackend):
                 qo_indptr,
                 kv_last_page_len,
                 max_q_len,
-                None,
+                max_kv_len,
                 work_metadata=work_metadata,
                 work_info_set=work_info_set,
                 work_indptr=work_indptr,
@@ -521,6 +581,8 @@ class AiterAttnBackend(AttentionBackend):
                 reduce_partial_map=reduce_partial_map,
                 num_kv_splits=num_kv_splits,
                 run_graph=False,
+                page_table=page_table,
+                seq_lens=seq_lens,
             )
 
         elif forward_batch.forward_mode.is_draft_extend():
@@ -1876,6 +1938,41 @@ class AiterAttnBackend(AttentionBackend):
             k_cache, v_cache = forward_batch.token_to_kv_pool.get_kv_buffer(
                 layer.layer_id
             )
+
+            if self.forward_metadata.page_table is not None:
+                sliding_window = (
+                    layer.sliding_window_size + 1
+                    if layer.sliding_window_size is not None
+                    and layer.sliding_window_size > -1
+                    else 0
+                )
+                paged_attention_v1(
+                    o.view(-1, layer.tp_q_head_num, layer.qk_head_dim),
+                    self.workspace_buffer,
+                    q.view(-1, layer.tp_q_head_num, layer.qk_head_dim),
+                    k_cache.view(
+                        -1, self.page_size, layer.tp_k_head_num, layer.qk_head_dim
+                    ),
+                    v_cache.view(
+                        -1, self.page_size, layer.tp_v_head_num, layer.v_head_dim
+                    ),
+                    self.scale,
+                    self.forward_metadata.page_table,
+                    self.forward_metadata.qo_indptr,
+                    self.forward_metadata.seq_lens,
+                    self.forward_metadata.max_kv_len,
+                    None,
+                    "auto",
+                    "NHD",
+                    self.logits_soft_cap,
+                    self.k_scale,
+                    self.v_scale,
+                    None,
+                    _AITER_PARTITION_SIZE_ROCM,
+                    1,
+                    sliding_window,
+                )
+                return o
 
             # TODO kkhuang-amd need to remove it when paged_attention_ragged support fp8-kv
             if self.kv_cache_dtype == fp8_dtype:
