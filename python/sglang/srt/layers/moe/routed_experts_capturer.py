@@ -9,9 +9,14 @@ import torch
 
 from sglang.srt.configs.model_config import ModelConfig
 from sglang.srt.layers.dp_attention import (
+    attn_tp_all_gather_into_tensor,
     get_attention_dp_rank,
+    get_attention_tp_size,
     get_dp_local_info,
     is_dp_attention_enabled,
+)
+from sglang.srt.layers.moe import (
+    get_moe_a2a_backend,
 )
 from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
@@ -203,14 +208,26 @@ class _RoutedExpertsCapturerReal(RoutedExpertsCapturer):
             device=device,
         )
 
+        if get_moe_a2a_backend().is_deepep():
+            attn_tp_size = get_attention_tp_size() if is_dp_attention_enabled() else 1
+            self.gather_buffer = torch.empty(
+                (
+                    self.device_cache.buffer.shape[0] * attn_tp_size,
+                    self.device_cache.buffer.shape[2],
+                ),
+                dtype=torch.int32,
+                device=device,
+            )
+
     def _get_local_range(self, forward_batch, can_run_graph, cuda_graph_batch):
-        if is_dp_attention_enabled():
+        # When DeepEP is enabled, capture() already all-gathers routing results across
+        # attention TP ranks, so we should keep the captured prefix as-is.
+        if is_dp_attention_enabled() and not get_moe_a2a_backend().is_deepep():
             local_start_pos, local_num_tokens = get_dp_local_info(forward_batch)
             if can_run_graph:
                 local_start_pos = get_attention_dp_rank() * cuda_graph_batch
             return local_start_pos, local_start_pos + local_num_tokens
-        else:
-            return 0, forward_batch.out_cache_loc.shape[0]
+        return 0, forward_batch.out_cache_loc.shape[0]
 
     def _sync_fwd_experts_buffer_DtoH(
         self,
@@ -244,6 +261,12 @@ class _RoutedExpertsCapturerReal(RoutedExpertsCapturer):
         )
 
     def capture(self, layer_id: int, topk_ids: torch.Tensor):
+        if get_moe_a2a_backend().is_deepep():
+            local_topk_ids = topk_ids
+            topk_ids = self.gather_buffer[
+                : local_topk_ids.size(0) * get_attention_tp_size()
+            ]
+            attn_tp_all_gather_into_tensor(topk_ids, local_topk_ids)
         self.device_cache.capture_fwd_routed_experts(layer_id, topk_ids)
 
     def get_routed_experts(

@@ -705,7 +705,8 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             )
 
         # Init routed experts capturer
-        self.init_routed_experts_capturer()
+        if not self.is_draft_worker:
+            self.init_routed_experts_capturer()
 
         # TODO: Refactor device-specific init branches into platform interface (separate PR).
         # Must be called BEFORE init_device_graphs() so CUDA graph capture
@@ -2936,13 +2937,23 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 )
         output.expert_distribution_metrics = recorder_outputs.get("metrics")
 
-        no_copy_to_cpu = not self.server_args.disable_overlap_schedule
-        output.routed_experts_output = get_global_experts_capturer().on_forward_end(
-            forward_batch=forward_batch,
-            can_run_graph=output.can_run_graph,
-            cuda_graph_batch=getattr(self.graph_runner, "bs", None),
-            no_copy_to_cpu=no_copy_to_cpu,
-        )
+        if not self.is_draft_worker:
+            no_copy_to_cpu = not self.server_args.disable_overlap_schedule
+
+            # In speculative decoding, CUDA graphs may run with multiple tokens per
+            # batch element, so DP slicing needs the padded token count rather than bs.
+            cuda_graph_num_tokens = getattr(self.graph_runner, "bs", None)
+            if cuda_graph_num_tokens is not None:
+                cuda_graph_num_tokens *= getattr(
+                    self.graph_runner, "num_tokens_per_bs", 1
+                )
+
+            output.routed_experts_output = get_global_experts_capturer().on_forward_end(
+                forward_batch=forward_batch,
+                can_run_graph=output.can_run_graph,
+                cuda_graph_batch=cuda_graph_num_tokens,
+                no_copy_to_cpu=no_copy_to_cpu,
+            )
 
         if self.eplb_manager is not None:
             self.eplb_manager.on_forward_pass_end()
