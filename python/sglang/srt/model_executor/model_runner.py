@@ -111,6 +111,7 @@ from sglang.srt.layers.dp_attention import (
 from sglang.srt.layers.logits_processor import LogitsProcessorOutput
 from sglang.srt.layers.moe.routed_experts_capturer import (
     RoutedExpertsCapturer,
+    RoutedExpertsOutput,
     get_global_experts_capturer,
     set_global_experts_capturer,
 )
@@ -285,6 +286,7 @@ class ModelRunnerOutput:
     logits_output: Union[LogitsProcessorOutput, PPProxyTensors]
     can_run_graph: bool
     expert_distribution_metrics: Optional[ExpertDistributionMetrics] = None
+    routed_experts_output: Optional[RoutedExpertsOutput] = None
 
 
 class ModelRunner(ModelRunnerKVCacheMixin):
@@ -2899,11 +2901,12 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 )
         output.expert_distribution_metrics = recorder_outputs.get("metrics")
 
-        # Copy cached routing experts' buffers back to CPU cache
-        get_global_experts_capturer().on_forward_end(
+        enable_overlap = not self.server_args.disable_overlap_schedule
+        output.routed_experts_output = get_global_experts_capturer().on_forward_end(
             forward_batch=forward_batch,
             can_run_graph=output.can_run_graph,
             cuda_graph_batch=getattr(self.graph_runner, "bs", None),
+            enable_overlap=enable_overlap,
         )
 
         if self.eplb_manager is not None:
