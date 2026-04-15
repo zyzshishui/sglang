@@ -53,7 +53,7 @@ class GenerationBatchResult:
     # metrics
     expert_distribution_metrics: Optional[ExpertDistributionMetrics] = None
 
-    def copy_to_cpu(self, return_logprob: bool):
+    def copy_to_cpu(self, return_logprob: bool, return_routed_experts: bool = False):
         """Copy tensors to CPU in overlap scheduling.
         Only the tensors which are needed for processing results are copied,
         e.g., next_token_ids, logits outputs
@@ -91,8 +91,10 @@ class GenerationBatchResult:
         if self.accept_lens is not None:
             self.accept_lens = self.accept_lens.to("cpu", non_blocking=True)
 
-        if self.routed_experts_output is not None:
+        if self.routed_experts_output is not None and return_routed_experts:
             self.routed_experts_output.copy_to_cpu()
+        else:
+            self.routed_experts_output = None
 
         if (x := self.expert_distribution_metrics) is not None:
             x.copy_to_cpu()
