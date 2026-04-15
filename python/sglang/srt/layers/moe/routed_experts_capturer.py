@@ -163,7 +163,7 @@ class RoutedExpertsCapturer(ABC):
         raise NotImplementedError
 
     def on_forward_end(
-        self, forward_batch, can_run_graph, cuda_graph_batch, enable_overlap=False
+        self, forward_batch, can_run_graph, cuda_graph_batch, no_copy_to_cpu=False
     ) -> Optional[RoutedExpertsOutput]:
         raise NotImplementedError
 
@@ -258,9 +258,9 @@ class _RoutedExpertsCapturerReal(RoutedExpertsCapturer):
         return self.get_host_cache().buffer[cache_pool_idx]
 
     def on_forward_end(
-        self, forward_batch, can_run_graph, cuda_graph_batch, enable_overlap=False
+        self, forward_batch, can_run_graph, cuda_graph_batch, no_copy_to_cpu=False
     ) -> Optional[RoutedExpertsOutput]:
-        if enable_overlap:
+        if no_copy_to_cpu:
             return self._prepare_routed_experts_output(
                 forward_batch=forward_batch,
                 can_run_graph=can_run_graph,
@@ -305,7 +305,7 @@ class _RoutedExpertsCapturerNoop(RoutedExpertsCapturer):
         pass
 
     def on_forward_end(
-        self, forward_batch, can_run_graph, cuda_graph_batch, enable_overlap=False
+        self, forward_batch, can_run_graph, cuda_graph_batch, no_copy_to_cpu=False
     ) -> Optional[RoutedExpertsOutput]:
         return None
 
