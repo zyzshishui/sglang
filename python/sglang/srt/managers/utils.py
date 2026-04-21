@@ -91,10 +91,8 @@ class GenerationBatchResult:
         if self.accept_lens is not None:
             self.accept_lens = self.accept_lens.to("cpu", non_blocking=True)
 
-        if self.routed_experts_output is not None and return_routed_experts:
+        if self.routed_experts_output is not None:
             self.routed_experts_output.copy_to_cpu()
-        else:
-            self.routed_experts_output = None
 
         if (x := self.expert_distribution_metrics) is not None:
             x.copy_to_cpu()
