@@ -2785,7 +2785,6 @@ class Scheduler(
                         self.future_map.store_to_map(future_indices, batch_result)
                         batch_result.copy_to_cpu(
                             return_logprob=batch.return_logprob,
-                            return_routed_experts=batch.return_routed_experts,
                         )
                     else:
                         batch_result.future_indices = future_indices
@@ -2903,7 +2902,6 @@ class Scheduler(
             self.future_map.store_to_map(batch_result.future_indices, batch_result)
             batch_result.copy_to_cpu(
                 return_logprob=self.cur_batch.return_logprob,
-                return_routed_experts=self.cur_batch.return_routed_experts,
             )
 
         # Release the closure and large GPU tensors that are no longer needed.
