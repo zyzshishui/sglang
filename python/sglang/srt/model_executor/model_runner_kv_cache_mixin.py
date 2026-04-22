@@ -53,6 +53,11 @@ _is_hip = is_hip()
 
 class ModelRunnerKVCacheMixin:
 
+    def _get_kv_pool_tp_size(self: ModelRunner) -> int:
+        if self.is_draft_worker and self.server_args.enable_dp_attention:
+            return self.tp_size
+        return get_attention_tp_size()
+
     def _profile_available_bytes(self: ModelRunner, pre_model_load_memory: int) -> int:
         post_model_load_memory = get_available_gpu_memory(
             self.device,
@@ -194,6 +199,7 @@ class ModelRunnerKVCacheMixin:
     def _init_pools(self: ModelRunner):
         """Initialize the memory pools."""
         max_num_reqs = self.max_running_requests
+        kv_pool_tp_size = self._get_kv_pool_tp_size()
 
         # Initialize req_to_token_pool
         if self.req_to_token_pool is None:
@@ -326,9 +332,7 @@ class ModelRunnerKVCacheMixin:
                     self.max_total_num_tokens,
                     page_size=self.page_size,
                     dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
+                    head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                     head_dim=self.model_config.head_dim,
                     layer_num=self.num_effective_layers,
                     device=self.device,
@@ -350,7 +354,7 @@ class ModelRunnerKVCacheMixin:
                         "swa_head_num": max(
                             1,
                             self.model_config.hf_text_config.swa_num_key_value_heads
-                            // get_attention_tp_size(),
+                            // kv_pool_tp_size,
                         ),
                         "swa_head_dim": self.model_config.hf_text_config.swa_head_dim,
                         "swa_v_head_dim": self.model_config.hf_text_config.swa_v_head_dim,
@@ -361,9 +365,7 @@ class ModelRunnerKVCacheMixin:
                     size_swa=self.swa_max_total_num_tokens,
                     page_size=self.page_size,
                     dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
+                    head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                     head_dim=self.model_config.head_dim,
                     swa_attention_layer_ids=self.model_config.swa_attention_layer_ids,
                     full_attention_layer_ids=self.model_config.full_attention_layer_ids,
@@ -401,9 +403,7 @@ class ModelRunnerKVCacheMixin:
                     self.max_total_num_tokens,
                     page_size=self.page_size,
                     dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
+                    head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                     head_dim=self.model_config.head_dim,
                     layer_num=self.num_effective_layers,
                     device=self.device,
@@ -472,7 +472,7 @@ class ModelRunnerKVCacheMixin:
                         "swa_head_num": max(
                             1,
                             self.model_config.hf_text_config.swa_num_key_value_heads
-                            // get_attention_tp_size(),
+                            // kv_pool_tp_size,
                         ),
                         "swa_head_dim": self.model_config.hf_text_config.swa_head_dim,
                         "swa_v_head_dim": self.model_config.hf_text_config.swa_v_head_dim,
@@ -483,9 +483,7 @@ class ModelRunnerKVCacheMixin:
                     size_swa=self.swa_max_total_num_tokens,
                     page_size=self.page_size,
                     dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
+                    head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                     head_dim=self.model_config.head_dim,
                     swa_attention_layer_ids=self.model_config.swa_attention_layer_ids,
                     full_attention_layer_ids=self.model_config.full_attention_layer_ids,
@@ -504,9 +502,7 @@ class ModelRunnerKVCacheMixin:
                     page_size=self.page_size,
                     size=self.max_total_num_tokens,
                     dtype=self.kv_cache_dtype,
-                    head_num=self.model_config.get_num_kv_heads(
-                        get_attention_tp_size()
-                    ),
+                    head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                     head_dim=self.model_config.head_dim,
                     # if draft worker, we only need 1 attention layer's kv pool
                     full_attention_layer_ids=(
@@ -532,9 +528,7 @@ class ModelRunnerKVCacheMixin:
                         self.max_total_num_tokens,
                         page_size=self.page_size,
                         dtype=self.kv_cache_dtype,
-                        head_num=self.model_config.get_num_kv_heads(
-                            get_attention_tp_size()
-                        ),
+                        head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                         head_dim=self.model_config.head_dim,
                         layer_num=self.num_effective_layers,
                         device=self.device,
@@ -551,9 +545,7 @@ class ModelRunnerKVCacheMixin:
                         self.max_total_num_tokens,
                         page_size=self.page_size,
                         dtype=self.kv_cache_dtype,
-                        head_num=self.model_config.get_num_kv_heads(
-                            get_attention_tp_size()
-                        ),
+                        head_num=self.model_config.get_num_kv_heads(kv_pool_tp_size),
                         head_dim=self.model_config.head_dim,
                         layer_num=self.num_effective_layers,
                         device=self.device,
