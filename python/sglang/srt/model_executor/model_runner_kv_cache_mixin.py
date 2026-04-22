@@ -55,6 +55,11 @@ class ModelRunnerKVCacheMixin:
 
     def _get_kv_pool_tp_size(self: ModelRunner) -> int:
         if self.is_draft_worker and self.server_args.enable_dp_attention:
+            # Under DP attention, EAGLE draft workers keep using model TP, so they shard
+            # KV heads by tp_size. But EAGLE3's draft worker runs on the attention TP group
+            # so it must shard by attention_tp_size instead.
+            if self.spec_algorithm.is_eagle3():
+                return get_attention_tp_size()
             return self.tp_size
         return get_attention_tp_size()
 
