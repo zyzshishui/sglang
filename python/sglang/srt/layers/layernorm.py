@@ -120,7 +120,7 @@ def _forward_with_allreduce_fusion(
 
         if world_size > 1:
             if post_residual_addition is not None:
-                x = x + post_residual_addition
+                residual = residual + post_residual_addition
 
             # Prefer AITER fused AR+RMSNorm when enabled on AMD.
             if _use_aiter:
