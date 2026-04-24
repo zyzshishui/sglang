@@ -328,6 +328,7 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
             routing_weights, selected_experts = torch.topk(
                 routing_weights, self.top_k, dim=-1
             )
+            selected_experts = selected_experts.to(torch.int32)
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
             routing_weights = routing_weights.to(hidden_states.dtype)
             topk_output = StandardTopKOutput(
