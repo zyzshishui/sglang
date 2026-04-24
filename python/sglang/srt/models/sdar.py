@@ -264,7 +264,9 @@ class SDARBlock(nn.Module):
 
         norm_kwargs = (
             dict(
+                weight_dtype=torch.float32,
                 cast_x_before_out_mul=True,
+                override_orig_dtype=torch.float32,
                 fp32_residual=True,
             )
             if get_global_server_args().rl_on_policy_target is not None
@@ -386,7 +388,9 @@ class SDARModel(nn.Module):
         if self.pp_group.is_last_rank:
             norm_kwargs = (
                 dict(
+                    weight_dtype=torch.float32,
                     cast_x_before_out_mul=True,
+                    override_orig_dtype=torch.float32,
                     fp32_residual=True,
                 )
                 if get_global_server_args().rl_on_policy_target is not None

@@ -874,6 +874,7 @@ class VisionAttention(nn.Module):
     ):
         norm_kwargs = (
             dict(
+                weight_dtype=torch.float32,
                 cast_x_before_out_mul=True,
             )
             if get_global_server_args().rl_on_policy_target is not None

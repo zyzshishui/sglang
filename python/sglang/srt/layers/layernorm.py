@@ -119,6 +119,10 @@ def _forward_with_allreduce_fusion(
                 world_size = get_moe_tensor_parallel_world_size()
 
         if world_size > 1:
+            if not getattr(norm_module, "residual_add_in_fp32", True):
+                x = tensor_model_parallel_all_reduce(x)
+                return norm_module.forward(x, residual, post_residual_addition)
+
             if post_residual_addition is not None:
                 residual = residual + post_residual_addition
 
@@ -155,17 +159,22 @@ class RMSNorm(MultiPlatformOp):
         eps: float = 1e-6,
         var_hidden_size: Optional[int] = None,
         cast_x_before_out_mul: bool = False,
-        fp32_residual: bool = True,
+        fp32_residual: bool = False,
         has_weight: bool = True,
+        weight_dtype: Optional = None,
+        override_orig_dtype: Optional = None,
+        residual_add_in_fp32: bool = True,
     ) -> None:
         super().__init__()
         self.has_weight = has_weight
         self.cast_x_before_out_mul = cast_x_before_out_mul
         self.fp32_residual = fp32_residual
+        self.override_orig_dtype = override_orig_dtype
+        self.residual_add_in_fp32 = residual_add_in_fp32
         if self.has_weight:
-            self.weight = nn.Parameter(torch.ones(hidden_size))
+            self.weight = nn.Parameter(torch.ones(hidden_size, dtype=weight_dtype))
         else:
-            self.weight = torch.ones(hidden_size)
+            self.weight = torch.ones(hidden_size, dtype=weight_dtype)
         self.variance_epsilon = eps
         self.hidden_size = hidden_size
         self.variance_size_override = (
@@ -192,6 +201,8 @@ class RMSNorm(MultiPlatformOp):
             original_shape = x.shape
             x = x.contiguous().reshape(-1, original_shape[-1])
         if self.variance_size_override is not None:
+            return self.forward_native(x, residual, post_residual_addition)
+        if residual is not None and not self.residual_add_in_fp32:
             return self.forward_native(x, residual, post_residual_addition)
         if is_batch_invariant_mode_enabled():
             if (
@@ -224,6 +235,8 @@ class RMSNorm(MultiPlatformOp):
         residual: Optional[torch.Tensor] = None,
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if residual is not None and not self.residual_add_in_fp32:
+            return self.forward_native(x, residual, post_residual_addition)
         if residual is not None:
             if post_residual_addition is not None:
                 residual = residual + post_residual_addition
@@ -239,6 +252,8 @@ class RMSNorm(MultiPlatformOp):
         residual: Optional[torch.Tensor] = None,
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if residual is not None and not self.residual_add_in_fp32:
+            return self.forward_native(x, residual, post_residual_addition)
         if residual is not None:
             if post_residual_addition is not None:
                 residual = residual + post_residual_addition
@@ -268,6 +283,8 @@ class RMSNorm(MultiPlatformOp):
         if not x.is_contiguous():
             # NOTE: Remove this if aiter kernel supports discontinuous input
             x = x.contiguous()
+        if residual is not None and not self.residual_add_in_fp32:
+            return self.forward_native(x, residual, post_residual_addition)
         if residual is not None:
             if post_residual_addition is not None:
                 residual = residual + post_residual_addition
@@ -289,19 +306,23 @@ class RMSNorm(MultiPlatformOp):
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         if not x.is_contiguous():
             x = x.contiguous()
-        orig_dtype = x.dtype
-        x = x.to(torch.float32)
-        if residual is not None:
-            if self.fp32_residual:
+        orig_dtype = self.override_orig_dtype or x.dtype
+        if residual is not None and not self.residual_add_in_fp32:
+            x = x + residual
+            if post_residual_addition is not None:
+                x = x + post_residual_addition
+            residual = x.to(torch.float32) if self.fp32_residual else x.clone()
+            x = x.to(torch.float32)
+        else:
+            x = x.to(torch.float32)
+            if residual is not None:
                 x = x + residual.to(torch.float32)
                 if post_residual_addition is not None:
                     x = x + post_residual_addition.to(torch.float32)
-                residual = x.clone()
-            else:
-                x = x + residual
-                if post_residual_addition is not None:
-                    x = x + post_residual_addition
-                residual = x.to(orig_dtype)
+                if self.fp32_residual:
+                    residual = x.clone()
+                else:
+                    residual = x.to(orig_dtype)
         hidden_size = x.shape[-1]
         if hidden_size != self.hidden_size:
             raise ValueError(
@@ -339,6 +360,8 @@ class RMSNorm(MultiPlatformOp):
         residual: Optional[torch.Tensor] = None,
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if residual is not None and not self.residual_add_in_fp32:
+            return self.forward_native(x, residual, post_residual_addition)
         if _is_cpu_amx_available:
             if residual is not None:
                 if post_residual_addition is not None:
@@ -360,6 +383,8 @@ class RMSNorm(MultiPlatformOp):
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         if self.variance_size_override is not None:
+            return self.forward_native(x, residual, post_residual_addition)
+        if residual is not None and not self.residual_add_in_fp32:
             return self.forward_native(x, residual, post_residual_addition)
         if residual is not None:
             if post_residual_addition is not None:

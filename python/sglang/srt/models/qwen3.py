@@ -105,6 +105,7 @@ class Qwen3Attention(nn.Module):
             dict(
                 cast_x_before_out_mul=True,
                 fp32_residual=False,
+                residual_add_in_fp32=False,
             )
             if get_global_server_args().rl_on_policy_target is not None
             else {}
@@ -355,6 +356,7 @@ class Qwen3DecoderLayer(nn.Module):
             dict(
                 cast_x_before_out_mul=True,
                 fp32_residual=False,
+                residual_add_in_fp32=False,
             )
             if get_global_server_args().rl_on_policy_target is not None
             else {}

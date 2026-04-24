@@ -268,14 +268,10 @@ def replace_rms_norm_class(rms_norm: nn.Module, hidden_size: int) -> nn.Module:
         kwargs["has_weight"] = getattr(rms_norm, "with_scale", True)
         if weight_meta is None:
             kwargs["has_weight"] = False
+        else:
+            kwargs["weight_dtype"] = weight_meta.dtype
         base_cls = RMSNorm
         norm = base_cls(**kwargs)
-        if weight_meta is not None and norm.weight.dtype != weight_meta.dtype:
-            weight = norm.weight.to(dtype=weight_meta.dtype)
-            if isinstance(norm.weight, nn.Parameter):
-                norm.weight = nn.Parameter(weight)
-            else:
-                norm.weight = weight
 
     # Wrap to handle 3D inputs from Transformers backbone (batch dim)
     class HFCompatibleRMSNorm(norm.__class__):
