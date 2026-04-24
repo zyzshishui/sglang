@@ -290,19 +290,18 @@ class RMSNorm(MultiPlatformOp):
         if not x.is_contiguous():
             x = x.contiguous()
         orig_dtype = x.dtype
-
-        if residual is not None and not self.fp32_residual:
-            x = x + residual
-            if post_residual_addition is not None:
-                x = x + post_residual_addition
-            residual = x.clone()
         x = x.to(torch.float32)
-        if residual is not None and self.fp32_residual:
-            x = x + residual.to(torch.float32)
-            if post_residual_addition is not None:
-                x = x + post_residual_addition.to(torch.float32)
-            residual = x.to(orig_dtype)
-
+        if residual is not None:
+            if self.fp32_residual:
+                x = x + residual.to(torch.float32)
+                if post_residual_addition is not None:
+                    x = x + post_residual_addition.to(torch.float32)
+                residual = x.clone()
+            else:
+                x = x + residual
+                if post_residual_addition is not None:
+                    x = x + post_residual_addition
+                residual = x.to(orig_dtype)
         hidden_size = x.shape[-1]
         if hidden_size != self.hidden_size:
             raise ValueError(
