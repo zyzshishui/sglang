@@ -541,9 +541,9 @@ class GemmaRMSNorm(MultiPlatformOp):
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         orig_dtype = x.dtype
         if residual is not None:
+            x = x + residual
             if post_residual_addition is not None:
                 x = x + post_residual_addition
-            x = x + residual
             residual = x
 
         x = x.float()
@@ -628,11 +628,11 @@ class GemmaRMSNorm(MultiPlatformOp):
         post_residual_addition: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         if envs.SGLANG_NPU_FORWARD_NATIVE_GEMMA_RMS_NORM.get():
-            return self.forward_native(x, residual)
+            return self.forward_native(x, residual, post_residual_addition)
         if residual is not None:
+            x = x + residual
             if post_residual_addition is not None:
                 x = x + post_residual_addition
-            x = x + residual
             residual = x
 
         x, _ = torch_npu.npu_gemma_rms_norm(x, self.weight, self.variance_epsilon)
