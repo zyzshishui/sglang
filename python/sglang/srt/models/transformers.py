@@ -266,10 +266,10 @@ def replace_rms_norm_class(rms_norm: nn.Module, hidden_size: int) -> nn.Module:
         )
     else:
         kwargs["has_weight"] = getattr(rms_norm, "with_scale", True)
-        if weight_meta is None:
-            kwargs["has_weight"] = False
-        else:
+        if weight_meta is not None:
             kwargs["weight_dtype"] = weight_meta.dtype
+        else:
+            kwargs["has_weight"] = False
         base_cls = RMSNorm
         norm = base_cls(**kwargs)
 
