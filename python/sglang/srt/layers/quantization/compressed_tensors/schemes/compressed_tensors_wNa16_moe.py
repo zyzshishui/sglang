@@ -67,7 +67,7 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
         self.strategy = config.strategy
         self.group_size = config.group_size
         self.actorder = config.actorder
-        self.sym = config.symmetric
+        self.symmetric = config.symmetric
 
         if not (
             self.quant_config.quant_format == CompressionFormat.pack_quantized.value
@@ -176,7 +176,7 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
         set_weight_attrs(w13_weight_shape, extra_weight_attrs)
 
         # add zero param
-        if not self.sym:
+        if not self.symmetric:
             w13_qzeros = torch.nn.Parameter(
                 torch.empty(
                     num_experts,
@@ -255,12 +255,12 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
         # Force record: these are the target GPTQ shapes for rollback.
         layer._original_shapes["w13_weight_packed"] = tuple(w13_weight.shape)
         layer._original_shapes["w13_weight_scale"] = tuple(w13_scale.shape)
-        if not self.sym:
+        if not self.symmetric:
             layer._original_shapes["w13_weight_zero_point"] = w13_qzeros.shape
 
         layer._original_shapes["w2_weight_packed"] = tuple(w2_weight.shape)
         layer._original_shapes["w2_weight_scale"] = tuple(w2_scale.shape)
-        if not self.sym:
+        if not self.symmetric:
             layer._original_shapes["w2_weight_zero_point"] = tuple(w2_qzeros.shape)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
@@ -366,7 +366,7 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
         replace_tensor("w2_weight_scale", marlin_w2_scales)
 
         # Repack zero
-        if not self.sym:
+        if not self.symmetric:
             marlin_w13_zp = moe_awq_to_marlin_zero_points(
                 layer.w13_weight_zero_point,
                 size_k=layer.w13_weight_zero_point.shape[1],
@@ -464,8 +464,8 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
             g_idx2=layer.w2_weight_g_idx,
             sort_indices1=layer.w13_g_idx_sort_indices,
             sort_indices2=layer.w2_g_idx_sort_indices,
-            w1_zeros=layer.w13_weight_zero_point if not self.sym else None,
-            w2_zeros=layer.w2_weight_zero_point if not self.sym else None,
+            w1_zeros=layer.w13_weight_zero_point if not self.symmetric else None,
+            w2_zeros=layer.w2_weight_zero_point if not self.symmetric else None,
             num_bits=self.num_bits,
             is_k_full=self.is_k_full,
             routed_scaling_factor=self.moe_runner_config.routed_scaling_factor,
