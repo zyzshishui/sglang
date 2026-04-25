@@ -119,10 +119,6 @@ def _forward_with_allreduce_fusion(
                 world_size = get_moe_tensor_parallel_world_size()
 
         if world_size > 1:
-            if not getattr(norm_module, "residual_add_in_fp32", True):
-                x = tensor_model_parallel_all_reduce(x)
-                return norm_module.forward(x, residual, post_residual_addition)
-
             if post_residual_addition is not None:
                 residual = residual + post_residual_addition
 
