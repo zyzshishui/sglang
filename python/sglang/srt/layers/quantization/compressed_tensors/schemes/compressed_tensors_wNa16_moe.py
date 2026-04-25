@@ -397,6 +397,7 @@ class CompressedTensorsWNA16MoE(CompressedTensorsMoEScheme):
                 param.resize_(orig_shape)
 
         layer.is_marlin_converted = False
+        layer.is_triton_converted = False
 
     def create_moe_runner(
         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
@@ -480,6 +481,14 @@ class CompressedTensorsWNA16TritonMoE(CompressedTensorsWNA16MoE):
     weights to the uint8-packed format expected by the Triton fused MoE kernel
     instead of the Marlin-specific format.
     """
+
+    def __init__(self, quant_config: CompressedTensorsConfig, num_gpu_experts=-1):
+        super().__init__(quant_config, num_gpu_experts)
+        if not self.symmetric:
+            raise NotImplementedError(
+                "Asymmetric WNA16 MoE is only supported by the Marlin backend; "
+                "Triton/ROCm WNA16 MoE does not support zero points."
+            )
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
         if getattr(layer, "is_triton_converted", False):
