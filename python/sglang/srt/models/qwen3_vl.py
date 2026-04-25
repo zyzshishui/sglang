@@ -435,18 +435,29 @@ class Qwen3VLMoeVisionModel(nn.Module, RotaryPosMixin):
         grid_ts, grid_hs, grid_ws = grid_thw[:, 0], grid_thw[:, 1], grid_thw[:, 2]
         num_grid_per_side = int(self.num_position_embeddings**0.5)
         device = self.pos_embed.weight.device
+        interp_device = torch.device("cpu")
 
         idx_list = [[] for _ in range(4)]
         weight_list = [[] for _ in range(4)]
+        temporal_dims = []
+        height_dims = []
+        width_dims = []
+        patches_size = []
 
         for t, h, w in zip(grid_ts, grid_hs, grid_ws):
-            h_idxs = torch.linspace(0, num_grid_per_side - 1, h)
-            w_idxs = torch.linspace(0, num_grid_per_side - 1, w)
+            t, h, w = int(t), int(h), int(w)
+            temporal_dims.append(t)
+            height_dims.append(h)
+            width_dims.append(w)
+            patches_size.append(h * w)
 
-            h_idxs_floor = h_idxs.int()
-            w_idxs_floor = w_idxs.int()
-            h_idxs_ceil = (h_idxs.int() + 1).clip(max=num_grid_per_side - 1)
-            w_idxs_ceil = (w_idxs.int() + 1).clip(max=num_grid_per_side - 1)
+            h_idxs = self._torch_interp_indices(h, interp_device)
+            w_idxs = self._torch_interp_indices(w, interp_device)
+
+            h_idxs_floor = h_idxs.to(torch.long)
+            w_idxs_floor = w_idxs.to(torch.long)
+            h_idxs_ceil = (h_idxs_floor + 1).clip(max=num_grid_per_side - 1)
+            w_idxs_ceil = (w_idxs_floor + 1).clip(max=num_grid_per_side - 1)
 
             dh = h_idxs - h_idxs_floor
             dw = w_idxs - w_idxs_floor
@@ -479,13 +490,13 @@ class Qwen3VLMoeVisionModel(nn.Module, RotaryPosMixin):
         pos_embeds = self.pos_embed(idx_tensor).to(device) * weight_tensor[:, :, None]
         patch_pos_embeds = pos_embeds[0] + pos_embeds[1] + pos_embeds[2] + pos_embeds[3]
 
-        patch_pos_embeds = patch_pos_embeds.split(
-            [h * w for h, w in zip(grid_hs, grid_ws)]
-        )
+        patch_pos_embeds = patch_pos_embeds.split(patches_size)
 
         patch_pos_embeds_permute = []
         merge_size = self.spatial_merge_size
-        for pos_embed, t, h, w in zip(patch_pos_embeds, grid_ts, grid_hs, grid_ws):
+        for pos_embed, t, h, w in zip(
+            patch_pos_embeds, temporal_dims, height_dims, width_dims
+        ):
             pos_embed = pos_embed.repeat(t, 1)
             pos_embed = (
                 pos_embed.view(
@@ -522,12 +533,9 @@ class Qwen3VLMoeVisionModel(nn.Module, RotaryPosMixin):
 
         outputs = []
         for t, h, w in grid_thw:
-            h_idxs = torch.linspace(
-                0, num_grid_per_side - 1, h, dtype=torch.float32, device=self.device
-            )
-            w_idxs = torch.linspace(
-                0, num_grid_per_side - 1, w, dtype=torch.float32, device=self.device
-            )
+            t, h, w = int(t), int(h), int(w)
+            h_idxs = self._torch_interp_indices(h, self.device)
+            w_idxs = self._torch_interp_indices(w, self.device)
 
             h_floor = h_idxs.to(torch.long)
             w_floor = w_idxs.to(torch.long)
