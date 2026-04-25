@@ -249,9 +249,11 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
                 f"the number of experts {config.num_experts}."
             )
 
+        self.top_k = config.num_experts_per_tok
+        self.norm_topk_prob = config.norm_topk_prob
         self.topk = TopK(
-            top_k=config.num_experts_per_tok,
-            renormalize=config.norm_topk_prob,
+            top_k=self.top_k,
+            renormalize=self.norm_topk_prob,
             use_grouped_topk=False,
             layer_id=layer_id,
         )
@@ -282,7 +284,6 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
             self.num_experts = (
                 config.num_experts + get_global_server_args().ep_num_redundant_experts
             )
-            self.top_k = config.num_experts_per_tok
 
     def forward(
         self,
@@ -329,7 +330,8 @@ class Qwen3MoeSparseMoeBlock(nn.Module):
                 routing_weights, self.top_k, dim=-1
             )
             selected_experts = selected_experts.to(torch.int32)
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+            if self.norm_topk_prob:
+                routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
             routing_weights = routing_weights.to(hidden_states.dtype)
             topk_output = StandardTopKOutput(
                 topk_weights=routing_weights,
