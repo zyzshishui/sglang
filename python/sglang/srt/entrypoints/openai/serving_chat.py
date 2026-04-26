@@ -354,12 +354,17 @@ class OpenAIServingChat(OpenAIServingBase):
         if reasoning_effort is not None:
             request.reasoning_effort = reasoning_effort
 
-        """Convert OpenAI chat completion request to internal format"""
-        if request.return_prompt_token_ids and request.stream:
-            raise ValueError(
-                "return_prompt_token_ids is not supported with streaming. "
-                "Please set stream=false when using return_prompt_token_ids=true."
-            )
+        if request.stream:
+            if request.return_prompt_token_ids:
+                raise ValueError(
+                    "return_prompt_token_ids is not supported with streaming. "
+                    "Please set stream=false when using return_prompt_token_ids=true."
+                )
+            if request.return_meta_info:
+                raise ValueError(
+                    "return_meta_info is not supported with streaming. "
+                    "Please set stream=false when using return_meta_info=true."
+                )
 
         is_multimodal = self.tokenizer_manager.model_config.is_multimodal
 
