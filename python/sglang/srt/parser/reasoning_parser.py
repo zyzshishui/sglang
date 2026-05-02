@@ -63,9 +63,10 @@ class BaseReasoningFormatDetector:
             return StreamingParseResult(normal_text=text)
 
         # The text is considered to be in a reasoning block.
-        processed_text = text.replace(
-            self.think_start_token + self.think_start_self_label, "", 1
-        )
+        think_start_text = self.think_start_token + self.think_start_self_label
+        processed_text = text
+        while processed_text.startswith(think_start_text):
+            processed_text = processed_text[len(think_start_text) :]
 
         if (
             self.think_end_token not in processed_text
