@@ -64,8 +64,8 @@ class BaseReasoningFormatDetector:
 
         # The text is considered to be in a reasoning block.
         processed_text = text.replace(
-            self.think_start_token + self.think_start_self_label, ""
-        ).strip()
+            self.think_start_token + self.think_start_self_label, "", 1
+        )
 
         if (
             self.think_end_token not in processed_text
@@ -79,7 +79,7 @@ class BaseReasoningFormatDetector:
             ):
                 # Find the first occurrence of tool_start_token and split there
                 tool_idx = processed_text.find(self.tool_start_token)
-                reasoning_text = processed_text[:tool_idx].strip()
+                reasoning_text = processed_text[:tool_idx]
                 # Preserve tool_start_token in normal text
                 normal_text = processed_text[tool_idx:]
                 return StreamingParseResult(
@@ -92,7 +92,7 @@ class BaseReasoningFormatDetector:
         if self.think_end_token in processed_text:
             splits = processed_text.split(self.think_end_token, maxsplit=1)
             reasoning_text = splits[0]
-            normal_text = splits[1].strip()
+            normal_text = splits[1]
 
             return StreamingParseResult(
                 normal_text=normal_text, reasoning_text=reasoning_text
@@ -143,7 +143,7 @@ class BaseReasoningFormatDetector:
             normal_text = current_text[end_idx + len(self.think_end_token) :]
 
             return StreamingParseResult(
-                normal_text=normal_text, reasoning_text=reasoning_text.rstrip()
+                normal_text=normal_text, reasoning_text=reasoning_text
             )
 
         # Continue with reasoning content
