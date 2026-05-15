@@ -1294,6 +1294,8 @@ class UpdateWeightsFromDistributedReqInput(BaseReq):
     weight_version: Optional[str] = None
     # Optional format specification for loading
     load_format: Optional[str] = None
+    # Tensor transfer mode inside the custom update process group.
+    transfer_mode: str = "broadcast"
 
 
 @dataclass
@@ -1445,6 +1447,8 @@ class InitWeightsUpdateGroupReqInput(BaseReq):
     group_name: str = "weight_update_group"
     # The backend
     backend: str = "nccl"
+    # Optional TP ranks to join the custom update group.
+    tp_ranks: Optional[List[int]] = None
 
 
 @dataclass

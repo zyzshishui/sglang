@@ -110,6 +110,7 @@ class BaseTpWorker(ABC):
             recv_req.world_size,
             recv_req.group_name,
             recv_req.backend,
+            recv_req.tp_ranks,
         )
         return success, message
 
@@ -163,6 +164,7 @@ class BaseTpWorker(ABC):
             recv_req.shapes,
             recv_req.group_name,
             recv_req.load_format,
+            recv_req.transfer_mode,
         )
         return success, message
 

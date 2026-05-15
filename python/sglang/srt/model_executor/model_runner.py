@@ -448,6 +448,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
 
         # For weight updates
         self._model_update_group = {}
+        self._skipped_model_update_groups = set()
         self._weights_send_group = {}
 
     def init_mindspore_runner(self):
@@ -1684,6 +1685,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         world_size,
         group_name,
         backend="nccl",
+        tp_ranks=None,
     ):
         """Initialize the Torch process group for model parameter updates.
 
@@ -1700,11 +1702,18 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         ), "Default torch process group must be initialized"
         assert group_name != "", "Group name cannot be empty"
 
-        rank = rank_offset + self.tp_rank
+        if tp_ranks is not None:
+            if self.tp_rank not in tp_ranks:
+                self._skipped_model_update_groups.add(group_name)
+                return True, "Skipped custom process group on non-participant TP rank."
+            rank = rank_offset + tp_ranks.index(self.tp_rank)
+        else:
+            rank = rank_offset + self.tp_rank
 
         logger.info(
             f"init custom process group: master_address={master_address}, master_port={master_port}, "
-            f"rank_offset={rank_offset}, rank={rank}, world_size={world_size}, group_name={group_name}, backend={backend}"
+            f"rank_offset={rank_offset}, rank={rank}, world_size={world_size}, group_name={group_name}, "
+            f"backend={backend}, tp_ranks={tp_ranks}"
         )
 
         try:
@@ -1716,6 +1725,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 rank=rank,
                 group_name=group_name,
             )
+            self._skipped_model_update_groups.discard(group_name)
             return True, "Succeeded to initialize custom process group."
         except Exception as e:
             message = f"Failed to initialize custom process group: {e}."
@@ -1728,6 +1738,9 @@ class ModelRunner(ModelRunnerKVCacheMixin):
                 pg = self._model_update_group.pop(group_name)
                 torch.distributed.destroy_process_group(pg)
                 return True, "Succeeded to destroy custom process group."
+            elif group_name in self._skipped_model_update_groups:
+                self._skipped_model_update_groups.remove(group_name)
+                return True, "Succeeded to clear skipped custom process group."
             else:
                 return False, "The group to be destroyed does not exist."
         except Exception as e:
@@ -1742,6 +1755,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         shapes,
         group_name,
         load_format: Optional[str] = None,
+        transfer_mode: str = "broadcast",
     ):
         """
         Update specific parameter in the model weights online
@@ -1753,10 +1767,36 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             shape: the shape of the parameter to be updated.
         """
 
+        if transfer_mode == "send_recv_tp0":
+            if load_format is not None:
+                message = (
+                    "send_recv_tp0 distributed weight transfer does not support "
+                    f"load_format={load_format}."
+                )
+                logger.error(message)
+                return False, message
+            return self._update_weights_from_distributed_send_recv_tp0(
+                names, dtypes, shapes, group_name
+            )
         assert group_name in self._model_update_group, (
             f"Group {group_name} not in {list(self._model_update_group.keys())}. "
             "Please call `init_weights_update_group` first."
         )
+        if transfer_mode == "send_recv":
+            if load_format is not None:
+                message = (
+                    "send_recv distributed weight transfer does not support "
+                    f"load_format={load_format}."
+                )
+                logger.error(message)
+                return False, message
+            return self._update_weights_from_distributed_send_recv(
+                names, dtypes, shapes, group_name
+            )
+        if transfer_mode != "broadcast":
+            message = f"Unsupported distributed weight transfer_mode={transfer_mode}."
+            logger.error(message)
+            return False, message
 
         if load_format == "flattened_bucket":
             return self._update_bucketed_weights_from_distributed(
@@ -1785,6 +1825,102 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             self.model.load_weights(weights)
             return True, "Succeeded to update parameter online."
 
+        except Exception as e:
+            error_msg = (
+                f"Failed to update parameter online: {e}. "
+                f"The full weights of the ModelRunner are partially updated. "
+                f"Please discard the whole weights."
+            )
+            logger.error(error_msg)
+            return False, error_msg
+
+    def _update_weights_from_distributed_send_recv(
+        self, names, dtypes, shapes, group_name
+    ):
+        try:
+            send_group = self._model_update_group[group_name]
+            weights = []
+            ops = []
+            for name, dtype, shape in zip(names, dtypes, shapes):
+                target_dtype = (
+                    dtype if isinstance(dtype, torch.dtype) else getattr(torch, dtype)
+                )
+                weight = torch.empty(shape, dtype=target_dtype, device=self.device)
+                ops.append(
+                    dist.P2POp(
+                        dist.irecv,
+                        weight,
+                        group=send_group,
+                        group_peer=0,
+                    )
+                )
+                weights.append((name, weight))
+            for work in dist.batch_isend_irecv(ops):
+                work.wait()
+
+            self.model.load_weights(weights)
+            return True, "Succeeded to update parameter online."
+        except Exception as e:
+            error_msg = (
+                f"Failed to update parameter online: {e}. "
+                f"The full weights of the ModelRunner are partially updated. "
+                f"Please discard the whole weights."
+            )
+            logger.error(error_msg)
+            return False, error_msg
+
+    def _update_weights_from_distributed_send_recv_tp0(
+        self, names, dtypes, shapes, group_name
+    ):
+        try:
+            is_receiver = self.tp_rank == 0
+            if is_receiver:
+                send_group = self._model_update_group[group_name]
+            elif group_name not in self._skipped_model_update_groups:
+                message = (
+                    f"Group {group_name} is neither initialized nor marked as skipped. "
+                    "Please call `init_weights_update_group` first."
+                )
+                logger.error(message)
+                return False, message
+
+            weights = []
+            ops = []
+            for name, dtype, shape in zip(names, dtypes, shapes):
+                target_dtype = (
+                    dtype if isinstance(dtype, torch.dtype) else getattr(torch, dtype)
+                )
+                weight = torch.empty(shape, dtype=target_dtype, device=self.device)
+                if is_receiver:
+                    ops.append(
+                        dist.P2POp(
+                            dist.irecv,
+                            weight,
+                            group=send_group,
+                            group_peer=0,
+                        )
+                    )
+                weights.append((name, weight))
+            if is_receiver:
+                for work in dist.batch_isend_irecv(ops):
+                    work.wait()
+
+            if self.tp_size > 1:
+                src_rank = self.tp_group.ranks[0]
+                handles = [
+                    dist.broadcast(
+                        weight,
+                        src=src_rank,
+                        group=self.tp_group.device_group,
+                        async_op=True,
+                    )
+                    for _, weight in weights
+                ]
+                for handle in handles:
+                    handle.wait()
+
+            self.model.load_weights(weights)
+            return True, "Succeeded to update parameter online."
         except Exception as e:
             error_msg = (
                 f"Failed to update parameter online: {e}. "
