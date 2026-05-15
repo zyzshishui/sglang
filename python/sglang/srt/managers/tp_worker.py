@@ -30,6 +30,7 @@ from sglang.srt.managers.io_struct import (
     LoadLoRAAdapterFromTensorsReqInput,
     LoadLoRAAdapterReqInput,
     PostProcessWeightsReqInput,
+    SendRecvWeightsToRemoteInstanceReqInput,
     SendWeightsToRemoteInstanceReqInput,
     UnloadLoRAAdapterReqInput,
     UpdateWeightFromDiskReqInput,
@@ -137,6 +138,16 @@ class BaseTpWorker(ABC):
         self, recv_req: SendWeightsToRemoteInstanceReqInput
     ):
         success, message = self.model_runner.send_weights_to_remote_instance(
+            recv_req.master_address,
+            recv_req.ports,
+            recv_req.group_name,
+        )
+        return success, message
+
+    def send_recv_weights_to_remote_instance(
+        self, recv_req: SendRecvWeightsToRemoteInstanceReqInput
+    ):
+        success, message = self.model_runner.send_recv_weights_to_remote_instance(
             recv_req.master_address,
             recv_req.ports,
             recv_req.group_name,

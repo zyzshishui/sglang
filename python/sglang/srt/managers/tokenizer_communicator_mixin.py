@@ -68,6 +68,8 @@ from sglang.srt.managers.io_struct import (
     ReleaseMemoryOccupationReqOutput,
     ResumeMemoryOccupationReqInput,
     ResumeMemoryOccupationReqOutput,
+    SendRecvWeightsToRemoteInstanceReqInput,
+    SendRecvWeightsToRemoteInstanceReqOutput,
     SendWeightsToRemoteInstanceReqInput,
     SendWeightsToRemoteInstanceReqOutput,
     SetInternalStateReq,
@@ -183,6 +185,9 @@ class TokenizerCommunicatorMixin:
         self.send_weights_to_remote_instance_communicator = _Communicator(
             self.send_to_scheduler, server_args.dp_size
         )
+        self.send_recv_weights_to_remote_instance_communicator = _Communicator(
+            self.send_to_scheduler, server_args.dp_size
+        )
         self.update_weights_from_tensor_communicator = _Communicator(
             self.send_to_scheduler, server_args.dp_size
         )
@@ -268,6 +273,10 @@ class TokenizerCommunicatorMixin:
                 (
                     SendWeightsToRemoteInstanceReqOutput,
                     self.send_weights_to_remote_instance_communicator.handle_recv,
+                ),
+                (
+                    SendRecvWeightsToRemoteInstanceReqOutput,
+                    self.send_recv_weights_to_remote_instance_communicator.handle_recv,
                 ),
                 (
                     UpdateWeightsFromTensorReqOutput,
@@ -565,6 +574,19 @@ class TokenizerCommunicatorMixin:
             self.server_args.dp_size == 1
         ), "dp_size must be 1 for send_weights_to_remote_instance"
         result = (await self.send_weights_to_remote_instance_communicator(obj))[0]
+        return result.success, result.message
+
+    async def send_recv_weights_to_remote_instance(
+        self: TokenizerManager,
+        obj: SendRecvWeightsToRemoteInstanceReqInput,
+        request: Optional[fastapi.Request] = None,
+    ) -> Tuple[bool, str]:
+        self.auto_create_handle_loop()
+        # TODO: support DP
+        assert (
+            self.server_args.dp_size == 1
+        ), "dp_size must be 1 for send_recv_weights_to_remote_instance"
+        result = (await self.send_recv_weights_to_remote_instance_communicator(obj))[0]
         return result.success, result.message
 
     async def update_weights_from_tensor(

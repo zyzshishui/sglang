@@ -1403,6 +1403,22 @@ class SendWeightsToRemoteInstanceReqOutput(BaseReq):
 
 
 @dataclass
+class SendRecvWeightsToRemoteInstanceReqInput(BaseReq):
+    # The master address
+    master_address: str
+    # The ports for each rank's communication group
+    ports: str
+    # The group name
+    group_name: str = "weight_send_recv_group"
+
+
+@dataclass
+class SendRecvWeightsToRemoteInstanceReqOutput(BaseReq):
+    success: bool
+    message: str
+
+
+@dataclass
 class UpdateExpertBackupReq(BaseReq):
     pass
 

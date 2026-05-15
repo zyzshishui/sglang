@@ -1601,6 +1601,83 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         torch.cuda.empty_cache()
         return success, message
 
+    def send_recv_weights_to_remote_instance(
+        self,
+        master_address,
+        ports,
+        group_name,
+    ):
+        assert (
+            torch.distributed.is_initialized()
+        ), "Default torch process group must be initialized"
+        assert group_name != "", "Group name cannot be empty"
+
+        ports_list = ports.split(",")
+        assert (
+            len(ports_list) == self.tp_size
+        ), f"Expected {self.tp_size} ports, but got {len(ports_list)} ports."
+        group_port = ports_list[self.tp_rank]
+        group_name = f"{group_name}_{group_port}_{self.tp_rank}"
+
+        send_group = self._weights_send_group.get(group_name)
+        if send_group is None:
+            message = f"Group {group_name} not in _weights_send_group list. Please call `init_weights_send_group_for_remote_instance` first."
+            logger.error(message)
+            return False, message
+
+        torch.cuda.empty_cache()
+        success = False
+        na = NetworkAddress(master_address, group_port)
+        message = ""
+        try:
+            group_world_size = send_group.size()
+            if group_world_size != 2:
+                raise ValueError(
+                    f"Expected send/recv group world size 2, but got {group_world_size}."
+                )
+            group_rank = send_group.rank()
+            if group_rank == 0:
+                for _, weights in self.model.named_parameters():
+                    for work in dist.batch_isend_irecv(
+                        [
+                            dist.P2POp(
+                                dist.isend,
+                                weights,
+                                group=send_group,
+                                group_peer=1,
+                            )
+                        ]
+                    ):
+                        work.wait()
+            elif group_rank == 1:
+                for _, weights in self.model.named_parameters():
+                    for work in dist.batch_isend_irecv(
+                        [
+                            dist.P2POp(
+                                dist.irecv,
+                                weights,
+                                group=send_group,
+                                group_peer=0,
+                            )
+                        ]
+                    ):
+                        work.wait()
+            else:
+                raise ValueError(
+                    f"Expected send/recv group rank 0 or 1, but got {group_rank}."
+                )
+            success = True
+            message = f"Succeeded to send/recv weights through {na.to_host_port_str()} {group_name}."
+        except Exception as e:
+            message = f"Failed to send/recv weights: {e}."
+            logger.error(message)
+
+        # destroy the process group after this one-shot transfer
+        del self._weights_send_group[group_name]
+        torch.distributed.distributed_c10d.destroy_process_group(send_group)
+        torch.cuda.empty_cache()
+        return success, message
+
     def init_weights_update_group(
         self,
         master_address,

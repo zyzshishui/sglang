@@ -126,6 +126,8 @@ from sglang.srt.managers.io_struct import (
     ResumeMemoryOccupationReqInput,
     RpcReqInput,
     RpcReqOutput,
+    SendRecvWeightsToRemoteInstanceReqInput,
+    SendRecvWeightsToRemoteInstanceReqOutput,
     SendWeightsToRemoteInstanceReqInput,
     SendWeightsToRemoteInstanceReqOutput,
     SetInternalStateReq,
@@ -1228,6 +1230,10 @@ class Scheduler(
                 (
                     SendWeightsToRemoteInstanceReqInput,
                     self.send_weights_to_remote_instance,
+                ),
+                (
+                    SendRecvWeightsToRemoteInstanceReqInput,
+                    self.send_recv_weights_to_remote_instance,
                 ),
                 (
                     UpdateWeightsFromDistributedReqInput,
@@ -3445,6 +3451,13 @@ class Scheduler(
         """Send the seed instance weights to the destination instance."""
         success, message = self.tp_worker.send_weights_to_remote_instance(recv_req)
         return SendWeightsToRemoteInstanceReqOutput(success, message)
+
+    def send_recv_weights_to_remote_instance(
+        self, recv_req: SendRecvWeightsToRemoteInstanceReqInput
+    ):
+        """Send or receive remote instance weights with NCCL point-to-point ops."""
+        success, message = self.tp_worker.send_recv_weights_to_remote_instance(recv_req)
+        return SendRecvWeightsToRemoteInstanceReqOutput(success, message)
 
     def slow_down(self, recv_req: SlowDownReqInput):
         t = recv_req.forward_sleep_time

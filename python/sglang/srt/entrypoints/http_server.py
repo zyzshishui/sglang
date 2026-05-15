@@ -131,6 +131,7 @@ from sglang.srt.managers.io_struct import (
     ProfileReqInput,
     ReleaseMemoryOccupationReqInput,
     ResumeMemoryOccupationReqInput,
+    SendRecvWeightsToRemoteInstanceReqInput,
     SendWeightsToRemoteInstanceReqInput,
     SeparateReasoningReqInput,
     SetInternalStateReq,
@@ -985,6 +986,23 @@ async def send_weights_to_remote_instance(
 ):
     success, message = (
         await _global_state.tokenizer_manager.send_weights_to_remote_instance(
+            obj, request
+        )
+    )
+    content = {"success": success, "message": message}
+    if success:
+        return ORJSONResponse(content, status_code=200)
+    else:
+        return ORJSONResponse(content, status_code=HTTPStatus.BAD_REQUEST)
+
+
+@app.post("/send_recv_weights_to_remote_instance")
+@auth_level(AuthLevel.ADMIN_OPTIONAL)
+async def send_recv_weights_to_remote_instance(
+    obj: SendRecvWeightsToRemoteInstanceReqInput, request: Request
+):
+    success, message = (
+        await _global_state.tokenizer_manager.send_recv_weights_to_remote_instance(
             obj, request
         )
     )
