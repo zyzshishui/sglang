@@ -1631,41 +1631,39 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         message = ""
         try:
             group_world_size = send_group.size()
-            if group_world_size != 2:
+            if group_world_size < 2:
                 raise ValueError(
-                    f"Expected send/recv group world size 2, but got {group_world_size}."
+                    f"Expected send/recv group world size >= 2, but got {group_world_size}."
                 )
             group_rank = send_group.rank()
+            parameters = [weights for _, weights in self.model.named_parameters()]
             if group_rank == 0:
-                for _, weights in self.model.named_parameters():
-                    for work in dist.batch_isend_irecv(
-                        [
-                            dist.P2POp(
-                                dist.isend,
-                                weights,
-                                group=send_group,
-                                group_peer=1,
-                            )
-                        ]
-                    ):
-                        work.wait()
-            elif group_rank == 1:
-                for _, weights in self.model.named_parameters():
-                    for work in dist.batch_isend_irecv(
-                        [
-                            dist.P2POp(
-                                dist.irecv,
-                                weights,
-                                group=send_group,
-                                group_peer=0,
-                            )
-                        ]
-                    ):
-                        work.wait()
+                ops = [
+                    dist.P2POp(
+                        dist.isend,
+                        weights,
+                        group=send_group,
+                        group_peer=peer_rank,
+                    )
+                    for weights in parameters
+                    for peer_rank in range(1, group_world_size)
+                ]
+            elif group_rank < group_world_size:
+                ops = [
+                    dist.P2POp(
+                        dist.irecv,
+                        weights,
+                        group=send_group,
+                        group_peer=0,
+                    )
+                    for weights in parameters
+                ]
             else:
                 raise ValueError(
-                    f"Expected send/recv group rank 0 or 1, but got {group_rank}."
+                    f"Expected send/recv group rank in [0, {group_world_size}), but got {group_rank}."
                 )
+            for work in dist.batch_isend_irecv(ops):
+                work.wait()
             success = True
             message = f"Succeeded to send/recv weights through {na.to_host_port_str()} {group_name}."
         except Exception as e:
