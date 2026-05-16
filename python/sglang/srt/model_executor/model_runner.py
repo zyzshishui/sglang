@@ -1782,17 +1782,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             f"Group {group_name} not in {list(self._model_update_group.keys())}. "
             "Please call `init_weights_update_group` first."
         )
-        if transfer_mode == "send_recv":
-            if load_format is not None:
-                message = (
-                    "send_recv distributed weight transfer does not support "
-                    f"load_format={load_format}."
-                )
-                logger.error(message)
-                return False, message
-            return self._update_weights_from_distributed_send_recv(
-                names, dtypes, shapes, group_name
-            )
         if transfer_mode != "broadcast":
             message = f"Unsupported distributed weight transfer_mode={transfer_mode}."
             logger.error(message)
@@ -1825,41 +1814,6 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             self.model.load_weights(weights)
             return True, "Succeeded to update parameter online."
 
-        except Exception as e:
-            error_msg = (
-                f"Failed to update parameter online: {e}. "
-                f"The full weights of the ModelRunner are partially updated. "
-                f"Please discard the whole weights."
-            )
-            logger.error(error_msg)
-            return False, error_msg
-
-    def _update_weights_from_distributed_send_recv(
-        self, names, dtypes, shapes, group_name
-    ):
-        try:
-            send_group = self._model_update_group[group_name]
-            weights = []
-            ops = []
-            for name, dtype, shape in zip(names, dtypes, shapes):
-                target_dtype = (
-                    dtype if isinstance(dtype, torch.dtype) else getattr(torch, dtype)
-                )
-                weight = torch.empty(shape, dtype=target_dtype, device=self.device)
-                ops.append(
-                    dist.P2POp(
-                        dist.irecv,
-                        weight,
-                        group=send_group,
-                        group_peer=0,
-                    )
-                )
-                weights.append((name, weight))
-            for work in dist.batch_isend_irecv(ops):
-                work.wait()
-
-            self.model.load_weights(weights)
-            return True, "Succeeded to update parameter online."
         except Exception as e:
             error_msg = (
                 f"Failed to update parameter online: {e}. "
