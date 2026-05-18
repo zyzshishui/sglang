@@ -856,7 +856,7 @@ class Engine(EngineScoreMixin, EngineBase):
         world_size: int,
         group_name: str,
         backend: str = "nccl",
-        tp_ranks: Optional[List[int]] = None,
+        transfer_mode: str = "broadcast",
     ):
         """Initialize parameter update group."""
         obj = InitWeightsUpdateGroupReqInput(
@@ -866,7 +866,7 @@ class Engine(EngineScoreMixin, EngineBase):
             world_size=world_size,
             group_name=group_name,
             backend=backend,
-            tp_ranks=tp_ranks,
+            transfer_mode=transfer_mode,
         )
         return self.loop.run_until_complete(
             self.tokenizer_manager.init_weights_update_group(obj, None)

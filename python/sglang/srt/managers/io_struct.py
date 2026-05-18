@@ -1447,8 +1447,8 @@ class InitWeightsUpdateGroupReqInput(BaseReq):
     group_name: str = "weight_update_group"
     # The backend
     backend: str = "nccl"
-    # Optional TP ranks to join the custom update group.
-    tp_ranks: Optional[List[int]] = None
+    # Weight update transfer mode. "broadcast" joins every TP rank; "relay" joins TP0 only.
+    transfer_mode: str = "broadcast"
 
 
 @dataclass

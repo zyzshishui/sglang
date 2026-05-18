@@ -110,7 +110,7 @@ class BaseTpWorker(ABC):
             recv_req.world_size,
             recv_req.group_name,
             recv_req.backend,
-            recv_req.tp_ranks,
+            recv_req.transfer_mode,
         )
         return success, message
 

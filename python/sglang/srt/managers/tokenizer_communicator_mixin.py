@@ -540,8 +540,20 @@ class TokenizerCommunicatorMixin:
         if not is_paused:
             async with self.model_update_lock.writer_lock:
                 results = await self.update_weights_from_distributed_communicator(obj)
+                success, message = _Communicator.merge_results(results)
+                if success and obj.transfer_mode == "relay":
+                    flush_results = await self.post_process_weights_communicator(
+                        PostProcessWeightsReqInput()
+                    )
+                    flush_success, flush_message = _Communicator.merge_results(
+                        flush_results
+                    )
+                    if not flush_success:
+                        return flush_success, flush_message
+                    message += f" {flush_message}"
+        else:
+            success, message = _Communicator.merge_results(results)
 
-        success, message = _Communicator.merge_results(results)
         if success and obj.weight_version is not None:
             self._update_weight_version_if_provided(obj.weight_version)
             message += f" Weight version updated to {obj.weight_version}."
