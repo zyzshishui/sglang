@@ -519,6 +519,13 @@ class TokenizerCommunicatorMixin:
             self.server_args.dp_size == 1 or self.server_args.enable_dp_attention
         ), "dp_size must be 1 or dp attention must be enabled for update weights from distributed"
 
+        if obj.transfer_mode == "relay" and obj.weight_version is not None:
+            return (
+                False,
+                "relay distributed weight transfer does not accept weight_version. "
+                "The the version is committed after relay load, fanout, and post-processing finish.",
+            )
+
         if obj.abort_all_requests:
             self.abort_request(abort_all=True)
 
@@ -532,16 +539,6 @@ class TokenizerCommunicatorMixin:
             async with self.model_update_lock.writer_lock:
                 results = await self.update_weights_from_distributed_communicator(obj)
                 success, message = _Communicator.merge_results(results)
-                if success and obj.transfer_mode == "relay":
-                    flush_results = await self.post_process_weights_communicator(
-                        PostProcessWeightsReqInput()
-                    )
-                    flush_success, flush_message = _Communicator.merge_results(
-                        flush_results
-                    )
-                    if not flush_success:
-                        return flush_success, flush_message
-                    message += f" {flush_message}"
         else:
             success, message = _Communicator.merge_results(results)
 
