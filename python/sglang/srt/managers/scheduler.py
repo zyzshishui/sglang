@@ -920,6 +920,7 @@ class Scheduler(
         self.session_controller = SessionController(self.tree_cache)
         self.forward_sleep_time = None
         self._engine_paused = False
+        self._abort_late_work_requests = False
 
     def init_chunked_prefill(self):
         self.chunked_prefill_size = self.server_args.chunked_prefill_size
@@ -1566,6 +1567,20 @@ class Scheduler(
                 )
                 continue
 
+            if self._abort_late_work_requests:
+                if isinstance(
+                    recv_req, (TokenizedGenerateReqInput, TokenizedEmbeddingReqInput)
+                ):
+                    self._abort_late_work_request(recv_req)
+                    continue
+                if isinstance(
+                    recv_req,
+                    (BatchTokenizedGenerateReqInput, BatchTokenizedEmbeddingReqInput),
+                ):
+                    for tokenized_req in recv_req:
+                        self._abort_late_work_request(tokenized_req)
+                    continue
+
             output = self._request_dispatcher(recv_req)
             if output is not None:
                 if not isinstance(output, RpcReqOutput):
@@ -1577,6 +1592,13 @@ class Scheduler(
         self.flush_wrapper.check_pending()
         if self.external_corpus_manager is not None:
             self.external_corpus_manager.check_pending_load()
+
+    def _abort_late_work_request(
+        self, recv_req: Union[TokenizedGenerateReqInput, TokenizedEmbeddingReqInput]
+    ):
+        self.ipc_channels.send_to_tokenizer.send_output(
+            AbortReq(rid=recv_req.rid), recv_req
+        )
 
     def init_profiler(self) -> None:
         self.profiler_manager = SchedulerProfilerManager(
@@ -3637,6 +3659,11 @@ class Scheduler(
         return RpcReqOutput(success, "" if not exec else str(exec))
 
     def abort_request(self, recv_req: AbortReq):
+        if recv_req.abort_all and self._engine_paused:
+            # Cover work requests that already passed the tokenizer pause gate
+            # but have not reached scheduler processing yet.
+            self._abort_late_work_requests = True
+
         # todo hisparse, release resources for abort requests in hisparse coordinator
         # Delete requests in the waiting queue
         to_del = []
@@ -3834,6 +3861,7 @@ class Scheduler(
                 f"(freed {before_mb - after_mb:.1f} MB)"
             )
         self._engine_paused = False
+        self._abort_late_work_requests = False
 
     def load_lora_adapter(
         self, recv_req: LoadLoRAAdapterReqInput
